@@ -4,8 +4,9 @@ import os
 import argparse
 from config_loader import load_config
 from directory_manager import clear_output_directory
-from tracking import track_video_with_yolov8, load_yolo_model  # Updated imports
+from tracking import track_video_with_yolov8, load_yolo_model
 from frame_processor import process_and_save_frames
+from video_generator import create_video_from_images  # New import
 
 def main(config_path):
     # Load configuration
@@ -38,6 +39,14 @@ def main(config_path):
             output_image_folder, 
             config["calibration_file"]
         )
+    
+    # Step 3: Create projection video if specified in config
+    if config.get("create_projection_video", False):
+        output_video_path = "output_video.mp4"
+        fps = config.get("fps", 6)
+        print("Generating projection video...")
+        create_video_from_images(output_image_folder, output_video_path, fps)
+        print("Projection video generated successfully.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process videos and save frames with optional calibration.")
