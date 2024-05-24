@@ -3,10 +3,10 @@
 import os
 import argparse
 from config_loader import load_config
-from directory_manager import clear_output_directory
+from directory_manager import clear_output_directory  # Updated import with archive option
 from tracking import track_video_with_yolov8, load_yolo_model
 from frame_processor import process_and_save_frames
-from video_generator import create_video_from_images  # New import
+from video_processor import create_video_from_images
 
 def main(config_path):
     # Load configuration
@@ -15,9 +15,9 @@ def main(config_path):
     # Load YOLO model
     model = load_yolo_model(config["model_path"])
     
-    # Prepare the output directory
+    # Prepare the output directory with optional archiving
     output_image_folder = "output_frames"
-    clear_output_directory(output_image_folder)
+    clear_output_directory(output_image_folder, archive=config.get("archive_output", False))
     
     # Process each video and camera pair
     for video_path, camera_nr in config["video_paths"]:
@@ -49,7 +49,7 @@ def main(config_path):
         print("Projection video generated successfully.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process videos and save frames with optional calibration.")
+    parser = argparse.ArgumentParser(description="Process videos and create projection video.")
     parser.add_argument("--config", type=str, default="config.json", help="Path to the configuration file")
     args = parser.parse_args()
 
