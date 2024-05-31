@@ -1,0 +1,10 @@
+{
+    "model_path": "models/best.pt",
+    "calibration_file": "legacy/calibration_matrix.json",
+    "video_paths": [
+        ["videos/block_0.mp4", 1]
+    ],
+    "save_tracking_video": true,
+    "create_projection_video": true,
+    "fps": 6
+}
