@@ -3,7 +3,7 @@
 import os
 import argparse
 from config_loader import load_config
-from directory_manager import clear_output_directory  # Updated import with archive option
+from directory_manager import clear_output_directory
 from tracking import track_video_with_yolov8, load_yolo_model
 from frame_processor import process_and_save_frames
 from video_processor import create_video_from_images
@@ -12,12 +12,12 @@ def main(config_path):
     # Load configuration
     config = load_config(config_path)
     
-    # Load YOLO model
+    # Load the YOLO model
     model = load_yolo_model(config["model_path"])
     
-    # Prepare the output directory with optional archiving
+    # Prepare the output directory
     output_image_folder = "output_frames"
-    clear_output_directory(output_image_folder, archive=config.get("archive_output", False))
+    clear_output_directory(output_image_folder)
     
     # Process each video and camera pair
     for video_path, camera_nr in config["video_paths"]:
@@ -32,7 +32,7 @@ def main(config_path):
             save=config.get("save_tracking_video", False)
         )
         
-        # Step 2: Process frames with projected centroids
+        # Step 2: Process frames and save with projected centroids
         process_and_save_frames(
             output_json, 
             camera_nr, 

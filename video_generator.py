@@ -7,10 +7,19 @@ import re
 def extract_frame_number(filename):
     """
     Extract numeric frame number from filename for sorting.
+
+    Parameters:
+        filename (str): Filename containing the frame number in padded format, like "frame_001.png".
+
+    Returns:
+        int: Frame number extracted from the filename.
+
+    Logic:
+        Uses regular expressions to find the numeric part after 'frame_' and before the file extension.
     """
-    # Using regex to find "frame_<number>.png" pattern
+    # Adjust the regex to look for "frame_<number>.png" pattern
     match = re.search(r'frame_(\d+)', filename)
-    return int(match.group(1)) if match else -1
+    return int(match.group(1)) if match else -1  # Return -1 if no match is found
 
 def create_video_from_images(image_folder, output_video_path, fps=6):
     """
@@ -20,6 +29,9 @@ def create_video_from_images(image_folder, output_video_path, fps=6):
         image_folder (str): Path to the folder containing projected images.
         output_video_path (str): Path where the output video will be saved.
         fps (int): Frames per second for the output video. Default is 6.
+    
+    This function loads images from the specified folder, sorts them by frame number,
+    overlays frame numbers, and compiles them into a video at the specified FPS.
     """
     # Collect image filenames and sort them by frame number
     images = sorted([img for img in os.listdir(image_folder) if img.endswith((".png", ".jpg", ".jpeg"))],
