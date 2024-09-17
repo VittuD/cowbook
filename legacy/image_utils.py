@@ -48,16 +48,12 @@ def show_img(window_name, img):
 
 def save_frame_image(projected_points, frame_num, output_path, barn_image_path="legacy/barn.png"):
     """
-    Overlay projected points onto a barn background image and save as an image.
-
-    Parameters:
-        projected_points (list): List of (x, y) tuples for projected points.
-        frame_num (int): Frame number, used for image labeling.
-        output_path (str): Path to save the output image.
-        barn_image_path (str): Path to the barn background image.
-
-    This function loads the barn background, overlays each projected point as a colored dot,
-    and saves the image with the specified filename.
+    Save processed frame with projected points to an image file.
+    
+    Args:
+        projected_points (list): List of points projected on the ground plane.
+        frame_num (int): Frame number for naming.
+        base_filename (str): Base name for the output image.
     """
     # Load the barn background image
     if os.path.exists(barn_image_path):
@@ -66,31 +62,11 @@ def save_frame_image(projected_points, frame_num, output_path, barn_image_path="
         # If barn.png is not found, create a blank background
         print(f"Warning: {barn_image_path} not found. Using blank background.")
         img = np.zeros((1080, 1920, 3), dtype=np.uint8)
-
-    img_height, img_width = img.shape[:2]
-
-    # Calculate scaling factors based on barn dimensions
-    max_x = max([p[0] for p in projected_points]) if projected_points else 1
-    max_y = max([p[1] for p in projected_points]) if projected_points else 1
-    scale_x = img_width / max_x
-    scale_y = img_height / max_y
-
-    # Draw each projected point, scaling it to fit the barn image
-    for point in projected_points:
-        scaled_x = int(point[0] * scale_x)
-        scaled_y = int(point[1] * scale_y)
         
-        # Ensure point is within image bounds
-        if 0 <= scaled_x < img_width and 0 <= scaled_y < img_height:
-            cv.circle(img, (scaled_x, scaled_y), 5, (0, 0, 255), -1)  # Red dot for each point
-
-    # Add frame number as text on the image
-    cv.putText(img, f"Frame: {frame_num}", (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-
-    # Save the image
-    cv.imwrite(output_path, img)
+    # Convert projected points to an image format
+    barn_image = points_to_barn(projected_points, img)
+    cv.imwrite(output_path, barn_image[1])
     print(f"Saved frame {frame_num} to {output_path}")
-
 
 def show_taken_points(camera_nr):
     """
@@ -664,14 +640,13 @@ def merge_duplicate_points(points, treshold=40):
     return points[mask]
 
 
-def points_to_barn(points, show=False):
+def points_to_barn(points, barn_img, show=False):
     """
     Plot a real world point into the barn image
 
     Keyword arguments:
     point -- real world 3d point to project
     """
-    barn_img = cv.imread("barn.png")
     barn_real_height, barn_real_width = 2950, 4200  # in centimeters
     img_height, img_widht = barn_img.shape[:2]
 
