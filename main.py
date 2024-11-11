@@ -11,42 +11,50 @@ from video_processor import create_video_from_images
 def main(config_path):
     # Load configuration
     config = load_config(config_path)
+    if not config:
+        return
     
     # Load the YOLO model
     model = load_yolo_model(config["model_path"])
     
-    # Prepare the output directory
-    output_image_folder = "output_frames"
+    # Prepare output directories
+    output_image_folder = config.get("output_image_folder", "output_frames")
+    output_video_folder = config.get("output_video_folder", "output_videos")
+    output_json_folder = config.get("output_json_folder", "output_json")
+    os.makedirs(output_image_folder, exist_ok=True)
+    os.makedirs(output_video_folder, exist_ok=True)
     clear_output_directory(output_image_folder)
-    
-    # Process each video and camera pair
-    for video_path, camera_nr in config["video_paths"]:
-        print(f"Processing video {video_path} for camera {camera_nr}")
-        output_json = f"{os.path.splitext(video_path)[0]}_tracking.json"
-        
-        # Step 1: Track and save detections to JSON
-        track_video_with_yolov8(
-            video_path,
-            output_json,
-            model,
-            save=config.get("save_tracking_video", False)
-        )
-        
-        # Step 2: Process frames and save with projected centroids
-        process_and_save_frames(
-            output_json, 
-            camera_nr, 
-            output_image_folder, 
-            config["calibration_file"]
-        )
-    
-    # Step 3: Create projection video if specified in config
-    if config.get("create_projection_video", False):
-        output_video_path = "output_video.mp4"
-        fps = config.get("fps", 6)
-        print("Generating projection video...")
+
+    # Process each video group
+    for video_group in config["video_groups"]:
+        output_json_paths = []
+        camera_nrs = []
+        for video_info in video_group:
+            video_path = video_info["path"]
+            camera_nr = video_info["camera_nr"]
+            print(f"Processing video {video_path} for camera {camera_nr}")
+            
+            # Define JSON output path for tracking data
+            if video_path.endswith('.json'):
+                output_json = video_path
+            else:
+                output_json = os.path.join(output_json_folder, f"{os.path.splitext(os.path.basename(video_path))[0]}_tracking.json")
+                track_video_with_yolov8(video_path, output_json, model, save=config["save_tracking_video"])
+            
+            output_json_paths.append(output_json)
+            camera_nrs.append(camera_nr)
+
+        # Process frames and save projections, handling multiple JSON files per group
+        process_and_save_frames(output_json_paths, camera_nrs, output_image_folder, config["calibration_file"])
+
+    # Generate a single combined projection video if specified
+    if config["create_projection_video"]:
+        output_video_path = os.path.join(output_video_folder, "combined_projection.mp4")
+        fps = config["fps"]
+        print("Generating combined projection video...")
         create_video_from_images(output_image_folder, output_video_path, fps)
-        print("Projection video generated successfully.")
+        print("Combined projection video generated successfully.")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process videos and create projection video.")

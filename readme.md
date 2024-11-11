@@ -7,6 +7,7 @@ This project is focused on video processing and image analysis, specifically for
 - [Installation](#installation)
 - [Usage](#usage)
 - [Configuration](#configuration)
+- [Directory Structure](#directory-structure)
 - [License](#license)
 
 ## Installation
@@ -50,6 +51,39 @@ The configuration file `config.json` contains various settings for the project:
 - `save_tracking_video`: Boolean to save the tracking video.
 - `create_projection_video`: Boolean to create the projection video.
 - `fps`: Frames per second for the output video.
+
+# Directory Structure
+
+## Directory Structure
+
+The directory structure of the project is as follows:
+
+```
+├── .gitignore
+├── config_loader.py
+├── config.json
+├── directory_manager.py
+├── frame_processor.py
+├── legacy/
+│   ├── __init__.py
+│   ├── calibration_matrix.json
+│   ├── image_utils.py
+│   ├── points_data.py
+│   └── real_world_points.json
+├── main.py
+├── models/
+│   ├── .gitkeep
+│   └── best.pt
+├── output_frames/
+├── processing.py
+├── readme.md
+├── requirements.txt
+├── tracking.py
+├── video_generator.py
+├── video_processor.py
+└── videos/
+    └── block_0_tracking.json
+```
 
 ## License
 

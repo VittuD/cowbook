@@ -1,8 +1,28 @@
 {
     "model_path": "models/best.pt",
     "calibration_file": "legacy/calibration_matrix.json",
-    "video_paths": [
-        ["videos/block_0.mp4", 1]
+    "output_image_folder": "output_frames",
+    "output_video_folder": "output_videos",
+    "output_json_folder": "output_json",
+    "video_groups": [
+        [
+            {
+                "path": "videos/Ch1_60.mp4",
+                "camera_nr": 1
+            },
+            {
+                "path": "videos/Ch4_60.mp4",
+                "camera_nr": 4
+            },
+            {
+                "path": "videos/Ch6_60.mp4",
+                "camera_nr": 6
+            },
+            {
+                "path": "videos/Ch8_60.mp4",
+                "camera_nr": 8
+            }
+        ]
     ],
     "save_tracking_video": true,
     "create_projection_video": true,
