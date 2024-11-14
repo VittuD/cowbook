@@ -88,3 +88,9 @@ The directory structure of the project is as follows:
 ## License
 
 This project is licensed under the MIT License.
+
+## Docker Container
+Example of how to run the Docker container:
+```sh
+docker run -it -p 8888:8888 --name=yolo_cow --ipc=host --gpus all -v ~/COW:/ultralytics/COW davidevitturini/ultralytics_jupyter
+```
