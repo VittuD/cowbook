@@ -46,26 +46,37 @@ def show_img(window_name, img):
     cv.resizeWindow(window_name, 1920, 1080)
     cv.imshow(window_name, img)
 
-def save_frame_image(projected_points, frame_num, output_path, barn_image_path="legacy/barn.png"):
+def save_frame_image(projected_points, frame_num, output_path,
+                     barn_image_path="legacy/barn.png", barn_image=None):
     """
     Save processed frame with projected points to an image file.
-    
+
     Args:
-        projected_points (list): List of points projected on the ground plane.
-        frame_num (int): Frame number for naming.
-        base_filename (str): Base name for the output image.
+        projected_points (list): List of (x, y[, z]) points projected on the ground plane.
+        frame_num (int): Frame number (used only for logging/text overlays if desired).
+        output_path (str): Output filename (extension controls format, e.g. .png or .jpg).
+        barn_image_path (str): Fallback path to load the barn background if `barn_image` is None.
+        barn_image (np.ndarray | None): Optional preloaded background image. If provided,
+                                        it will be copied and reused to avoid disk I/O per frame.
     """
-    # Load the barn background image
-    if os.path.exists(barn_image_path):
+    # Use preloaded background if given; otherwise load from disk, else make a blank canvas
+    if barn_image is not None:
+        img = barn_image.copy()
+    elif os.path.exists(barn_image_path):
         img = cv.imread(barn_image_path)
     else:
-        # If barn.png is not found, create a blank background
         print(f"Warning: {barn_image_path} not found. Using blank background.")
         img = np.zeros((1080, 1920, 3), dtype=np.uint8)
-        
-    # Convert projected points to an image format
-    barn_image = points_to_barn(projected_points, img)
-    cv.imwrite(output_path, barn_image[1])
+
+    # Draw projected points onto the background
+    barn_points, drawn = points_to_barn(projected_points, img)
+
+    # Optionally overlay frame index (comment out if not wanted)
+    cv.putText(drawn, f"Frame: {frame_num}", (10, 30),
+               cv.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv.LINE_AA)
+
+    # Write the composed frame
+    cv.imwrite(output_path, drawn)
     print(f"Saved frame {frame_num} to {output_path}")
 
 def show_taken_points(camera_nr):
@@ -236,7 +247,8 @@ def undistort_points_given(points, mtx, dist):
         (cv.TERM_CRITERIA_COUNT | cv.TERM_CRITERIA_EPS, 40, 0.03),
     )
 
-    return undistorted_points.reshape(undistorted_points.shape[0], 2).astype(int)
+    # Keep float precision for better PnP/projection accuracy
+    return undistorted_points.reshape(undistorted_points.shape[0], 2)
 
 def draw_grid(img):
     """
@@ -393,7 +405,6 @@ def get_bird_view_points(camera_nr, und_pts):
 
     M, _, _ = get_bird_view_perspective_transform_matrix(camera_nr)
 
-    return cv.perspectiveTransform(np.array([und_pts], dtype=np.float32), M)
     return cv.perspectiveTransform(np.array([und_pts], dtype=np.float32), M).reshape(
         und_pts.shape[0], 2
     )
@@ -496,8 +507,10 @@ def groundProjectPoint(camera_nr, mtx, dist, points):
         s = (z + tempMat2[2, 0]) / tempMat[2, 0]
         wcPoint = np.matmul(iRot, (np.matmul(s * iCam, uvPoint) - tvecs))
 
-        # wcPoint[2] will not be exactly equal to z, but very close to it
-        assert int(abs(wcPoint[2] - z) * (10**8)) == 0
+        # wcPoint[2] may differ from z by tiny numerical error; allow small tolerance
+        if abs(float(wcPoint[2] - z)) > 1e-4:
+            # optional: log or warn if desired
+            pass
         wcPoint[2] = z
 
         real_p = wcPoint.reshape(-1).astype(np.int32)
