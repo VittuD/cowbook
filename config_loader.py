@@ -16,6 +16,11 @@ def load_config(config_path):
         config.setdefault("save_tracking_video", False)
         config.setdefault("create_projection_video", True)
         config.setdefault("video_groups", [])
+        config.setdefault("calibration_file", "legacy/calibration_matrix.json")
+        config.setdefault("save_tracking_video", False)
+        # Parallel rendering & image format
+        config.setdefault("num_plot_workers", 0)           # 0 = sequential; >0 uses ProcessPoolExecutor
+        config.setdefault("output_image_format", "jpg")    # "png" or "jpg"
 
         # Validate each video group in the config
         for group in config["video_groups"]:

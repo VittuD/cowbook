@@ -1,5 +1,5 @@
 {
-    "model_path": "models/best.pt",
+    "model_path": "models/yolov11_best.pt",
     "calibration_file": "legacy/calibration_matrix.json",
     "output_image_folder": "output_frames",
     "output_video_folder": "output_videos",
@@ -24,7 +24,9 @@
             }
         ]
     ],
-    "save_tracking_video": true,
+    "num_plot_workers": 8,
+    "output_image_format": "jpg",
+    "save_tracking_video": false,
     "create_projection_video": true,
     "fps": 6
 }
