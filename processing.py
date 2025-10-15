@@ -2,6 +2,7 @@
 
 import json
 import numpy as np
+import cv2
 import legacy.image_utils as utils  # Legacy utilities for image processing
 
 def parse_json(json_file_path):
@@ -141,18 +142,36 @@ def process_detections(frame_data, mtx, dist):
         Each bounding box and centroid is undistorted using the provided camera matrix 
         and distortion coefficients.
     """
-    centroids = []  # Collect undistorted centroids for easier access later
+    dets = frame_data['detections']
+    if not dets:
+        frame_data['centroids'] = []
+        return frame_data
 
-    for detection in frame_data['detections']:
-        # Undistort the bounding box and centroid, keeping [0] indexing
-        detection['bbox'] = utils.undistort_points_given(detection['bbox'], mtx, dist)[0]
-        detection['centroid'] = utils.undistort_points_given(detection['centroid'], mtx, dist)[0]
+    # Build arrays: two corners per bbox, and one centroid per detection
+    bps = []
+    cps = []
+    for d in dets:
+        x1, y1, x2, y2 = d['bbox']
+        bps.extend([[x1, y1], [x2, y2]])
+        cx, cy = d['centroid']
+        cps.append([cx, cy])
 
-        # Append undistorted centroid to centroids list
-        centroids.append(detection['centroid'][0])
+    # Batch undistort
+    bps_u = utils.undistort_points_given(bps, mtx, dist)  # shape (2N, 2)
+    cps_u = utils.undistort_points_given(cps, mtx, dist)  # shape (N, 2)
 
-    # Add the list of centroids to the frame_data for easier processing later
-    frame_data['centroids'] = centroids
+    # Write back undistorted bbox corners and centroids
+    centroids_out = []
+    for i, d in enumerate(dets):
+        (x1u, y1u) = bps_u[2*i + 0]
+        (x2u, y2u) = bps_u[2*i + 1]
+        d['bbox'] = [float(x1u), float(y1u), float(x2u), float(y2u)]
+
+        (cxu, cyu) = cps_u[i]
+        d['centroid'] = [float(cxu), float(cyu)]
+        centroids_out.append(d['centroid'])
+
+    frame_data['centroids'] = centroids_out
     return frame_data
 
 def project_to_ground(centroids, mtx, dist, channel):
