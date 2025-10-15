@@ -14,3 +14,13 @@
 # Ingore venv and everything in it
 venv/
 
+# Pycache files
+__pycache__/
+
+# Contents of i/o folder
+output_frames/
+output_json/
+output_videos/
+videos/
+VideoVanzetti04042024/*
+VideoVanzetti23042024/json/*
