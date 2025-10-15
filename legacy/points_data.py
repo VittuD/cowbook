@@ -6,7 +6,7 @@ import json
 
 import numpy as np
 
-with open("legacy/real_worls_points.json") as f:
+with open("legacy/real_world_points.json") as f:
     data = json.load(f)
 
 # Latest 10 of complete row (from 10th to 20th)
