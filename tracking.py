@@ -38,9 +38,15 @@ def track_video_with_yolov8(video_path, output_json_path, model, save=False):
             # Extract bounding box coordinates and class labels
             bbox = [float(coord) for coord in box.xyxy[0]]
             frame_data["detections"]["xyxy"].append(bbox)
+
+            # Safely convert tensors or numbers to Python ints
+            cls_val = box.cls.item() if hasattr(box.cls, "item") else box.cls
+            id_raw = box.id if (box.id is not None) else None
+            id_val = id_raw.item() if (id_raw is not None and hasattr(id_raw, "item")) else id_raw
+
             frame_data["labels"].append({
-                "class_id": int(box.cls),  # Detected object's class
-                "id": int(box.id) if box.id is not None else None  # Track ID if available
+                "class_id": int(cls_val),
+                "id": int(id_val) if id_val is not None else None
             })
         json_data["frames"].append(frame_data)  # Append data for each frame
 
