@@ -73,6 +73,15 @@ def process_video_group(
         logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
         processed_json_paths = []
 
+    # Delete unprocessed JSONs to avoid confusion
+    for json_path in output_json_paths:
+        try:
+            if os.path.exists(json_path) and json_path not in processed_json_paths:
+                os.remove(json_path)
+                logger.debug("Deleted unprocessed JSON: %s", json_path)
+        except Exception as e:
+            logger.warning("Failed to delete unprocessed JSON %s: %s", json_path, e)
+
     # 3) Merge the PROCESSED JSONs so merged output includes centroids & projected_centroids
     merged_json_path = os.path.join(
         output_json_folder, f"group_{group_idx}_merged_processed.json"
