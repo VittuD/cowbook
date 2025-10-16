@@ -15,7 +15,6 @@ def _verify_writable(directory_path: str) -> None:
     Raises PermissionError if not writable.
     """
     try:
-        # NamedTemporaryFile deletes by default on close; use dir to verify permission
         with tempfile.NamedTemporaryFile(dir=directory_path):
             pass
     except Exception as e:
@@ -85,7 +84,6 @@ def clear_output_directory(directory_path: str) -> None:
     Clear all files and subdirectories in the specified directory.
     If the directory does not exist, it will be created.
     """
-    # Ensure the directory exists and is writable before clearing
     ensure_directory(directory_path, verify_writable=True)
 
     for filename in os.listdir(directory_path):
@@ -96,5 +94,4 @@ def clear_output_directory(directory_path: str) -> None:
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
         except Exception as e:
-            # Keep behavior non-fatal but informative
             logger.warning("Failed to delete %s. Reason: %s", file_path, e)
