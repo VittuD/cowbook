@@ -77,7 +77,7 @@ def save_frame_image(projected_points, frame_num, output_path,
 
     # Write the composed frame
     cv.imwrite(output_path, drawn)
-    print(f"Saved frame {frame_num} to {output_path}")
+    # print(f"Saved frame {frame_num} to {output_path}")
 
 def show_taken_points(camera_nr):
     """
