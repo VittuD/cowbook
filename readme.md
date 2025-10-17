@@ -186,4 +186,4 @@ Mount your project into the container and run the same commands inside.
 
 ## License
 
-AGPL-3.0
+AGPL-3.0. See [LICENSE](./LICENSE)
