@@ -24,15 +24,16 @@ def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    # Load configuration
-    config = load_config(config_path)
+    # Load configuration (with optional CLI overrides applied inside the loader)
+    overrides = (
+        {"save_tracking_video": bool(save_tracking_video_flag)}
+        if save_tracking_video_flag is not None
+        else None
+    )
+    config = load_config(config_path, overrides=overrides)
     if not config:
         logger.error("Failed to load config from %s", config_path)
         return
-
-    # CLI override for saving YOLO tracking videos (if provided)
-    if save_tracking_video_flag is not None:
-        config["save_tracking_video"] = bool(save_tracking_video_flag)
 
     # Prepare and verify output directories (creation + writability checks)
     output_image_folder, output_video_folder, output_json_folder = prepare_output_dirs(config)
@@ -41,11 +42,11 @@ def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None
     clear_output_directory(output_image_folder)
 
     # Load the YOLO model
-    try:
-        model = load_yolo_model(config["model_path"])
-    except Exception as e:
-        logger.exception("Failed to load YOLO model from %s: %s", config.get("model_path"), e)
-        return
+    # try:
+    #     model = load_yolo_model(config["model_path"])
+    # except Exception as e:
+    #     logger.exception("Failed to load YOLO model from %s: %s", config.get("model_path"), e)
+    #     return
 
     # Process each video group
     groups = config.get("video_groups", [])
@@ -56,15 +57,17 @@ def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None
             logger.info("=== Group %d/%d ===", idx, len(groups))
             try:
                 process_video_group(
-                    idx, video_group, model, config, output_json_folder, output_image_folder
+                    idx, video_group, config["model_path"], config, output_json_folder, output_image_folder
                 )
             except Exception as e:
                 logger.exception("Group %d failed: %s", idx, e)
 
     # Generate a single combined projection video if specified
     if config.get("create_projection_video", True):
-        output_video_path = os.path.join(output_video_folder, "combined_projection.mp4")
-        fps = int(config.get("fps", 6))
+        output_video_path = os.path.join(
+            output_video_folder, config.get("output_video_filename", "combined_projection.mp4")
+        )
+        fps = config["fps"]  # normalized in config_loader
         logger.info("Generating combined projection video at %d FPS -> %s", fps, output_video_path)
         try:
             create_video_from_images(output_image_folder, output_video_path, fps)

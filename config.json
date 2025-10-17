@@ -1,31 +1,33 @@
 {
     "model_path": "models/yolov11_best.pt",
     "calibration_file": "legacy/calibration_matrix.json",
-    "output_image_folder": "output_frames",
-    "output_video_folder": "output_videos",
-    "output_json_folder": "output_json",
+    "output_image_folder": "output_frames/demo_videos/",
+    "output_video_folder": "output_videos/demo_videos/",
+    "output_json_folder": "output_json/demo_videos/",
     "video_groups": [
         [
             {
-                "path": "videos/Ch1_60.mp4",
+                "path": "videos/demo_videos/Ch1_60.mp4",
                 "camera_nr": 1
             },
             {
-                "path": "videos/Ch4_60.mp4",
+                "path": "videos/demo_videos/Ch4_60.mp4",
                 "camera_nr": 4
             },
             {
-                "path": "videos/Ch6_60.mp4",
+                "path": "videos/demo_videos/Ch6_60.mp4",
                 "camera_nr": 6
             },
             {
-                "path": "videos/Ch8_60.mp4",
+                "path": "videos/demo_videos/Ch8_60.mp4",
                 "camera_nr": 8
             }
         ]
     ],
     "num_plot_workers": 8,
+    "num_tracking_workers": 4,
     "output_image_format": "jpg",
+    "convert_to_csv": true,
     "save_tracking_video": false,
     "create_projection_video": true,
     "fps": 6
