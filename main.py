@@ -17,7 +17,11 @@ from preprocess_video import preprocess_videos
 logger = logging.getLogger(__name__)
 
 
-def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None:
+def main(
+    config_path: str,
+    save_tracking_video_flag: bool | None = None,
+    clean_frames_after_video_flag: bool | None = None,
+) -> None:
     # Logging setup
     logging.basicConfig(
         level=logging.INFO,
@@ -73,9 +77,12 @@ def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None
         try:
             create_video_from_images(output_image_folder, output_video_path, fps)
             logger.info("Combined projection video generated successfully.")
-            # Optional: clean up intermediate frames after video creation
-            logger.info("Cleaning up intermediate frames in %s ...", output_image_folder)
-            clear_output_directory(output_image_folder)
+            # Clean up intermediate frames if enabled
+            if config.get("clean_frames_after_video", True):
+                logger.info("Cleaning up intermediate frames in %s ...", output_image_folder)
+                clear_output_directory(output_image_folder)
+            else:
+                logger.info("Keeping intermediate frames (clean_frames_after_video=false).")
         except Exception as e:
             logger.exception("Failed to create video: %s", e)
 
@@ -105,4 +112,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     config_path = args.config_opt or args.config or "config.json"
-    main(config_path, save_tracking_video_flag=args.save_tracking_video_flag)
+    main(
+        config_path,
+        save_tracking_video_flag=args.save_tracking_video_flag,
+        clean_frames_after_video_flag=args.clean_frames_after_video_flag,
+    )

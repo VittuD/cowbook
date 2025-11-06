@@ -1,7 +1,7 @@
 {
   "model_path": "models/yolov11_best.pt",
   "calibration_file": "legacy/calibration_matrix.json",
-
+  
   "mask_videos": true,
   "masked_video_folder": "masked_videos/demo_videos_masking/",
   "num_mask_workers": 4,
@@ -14,6 +14,7 @@
   "output_image_format": "jpg",
 
   "save_tracking_video": true,
+  "clean_frames_after_video": true,
   "create_projection_video": true,
   "convert_to_csv": true,
   "fps": 6,

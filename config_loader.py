@@ -29,6 +29,10 @@ def load_config(config_path, overrides=None):
         config.setdefault("output_video_filename", "combined_projection.mp4")
         # CSV conversion
         config.setdefault("convert_to_csv", True)
+        # Clean-up frames after assembling the video (default ON)
+        config.setdefault("clean_frames_after_video", True)
+        # Tracking workers (default to 1 to avoid GPU OOM)
+        config.setdefault("num_tracking_workers", 1)
         # ---- Masking at inference ----
         config.setdefault("mask_videos", False)
         config.setdefault("masked_video_folder", "masked_videos")
