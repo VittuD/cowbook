@@ -1,6 +1,7 @@
 # config_loader.py
 
 import json
+import os
 
 def load_config(config_path, overrides=None):
     """
@@ -19,7 +20,7 @@ def load_config(config_path, overrides=None):
         config.setdefault("video_groups", [])
         config.setdefault("calibration_file", "legacy/calibration_matrix.json")
         # Parallel rendering & image format
-        config.setdefault("num_plot_workers", 0)            # 0 = sequential; >0 uses ProcessPoolExecutor
+        config.setdefault("num_plot_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)            # 0 = sequential; >0 uses ProcessPoolExecutor
         config.setdefault("output_image_format", "jpg")     # "png" or "jpg"
         # Output directories & filename
         config.setdefault("output_image_folder", "output_frames")
@@ -28,6 +29,22 @@ def load_config(config_path, overrides=None):
         config.setdefault("output_video_filename", "combined_projection.mp4")
         # CSV conversion
         config.setdefault("convert_to_csv", True)
+        # ---- Masking at inference ----
+        config.setdefault("mask_videos", False)
+        config.setdefault("masked_video_folder", "masked_videos")
+        config.setdefault("num_mask_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)
+        config.setdefault("mask_strict_half_rule", True)
+        # Per-channel mask image paths (override in your JSON if you store masks elsewhere)
+        config.setdefault("masks", {
+            "Ch1": "test_img/combined_mask_ch1.png",
+            "Ch4": "test_img/combined_mask_ch4.png",
+            "Ch6": "test_img/combined_mask_ch6.png",
+            "Ch8": "test_img/combined_mask_ch8.png",
+        })
+
+        # Optional: explicit camera->channel map (JSON keys are strings)
+        # Example: {"1":"Ch1","4":"Ch4","6":"Ch6","8":"Ch8"}
+        config.setdefault("camera_to_mask_map", {})
 
         # ---- Apply optional overrides (from CLI or caller) ----
         if overrides:

@@ -12,7 +12,7 @@ from directory_manager import (
 from tracking import load_yolo_model
 from video_processor import create_video_from_images
 from group_processor import process_video_group
-
+from preprocess_video import preprocess_videos
 
 logger = logging.getLogger(__name__)
 
@@ -36,20 +36,21 @@ def main(config_path: str, save_tracking_video_flag: bool | None = None) -> None
         return
 
     # Prepare and verify output directories (creation + writability checks)
-    output_image_folder, output_video_folder, output_json_folder = prepare_output_dirs(config)
+    output_image_folder, output_video_folder, output_json_folder, output_masked_folder = prepare_output_dirs(config)
 
     # Clear previous per-frame renders (will create the folder if missing)
     clear_output_directory(output_image_folder)
 
-    # Load the YOLO model
-    # try:
-    #     model = load_yolo_model(config["model_path"])
-    # except Exception as e:
-    #     logger.exception("Failed to load YOLO model from %s: %s", config.get("model_path"), e)
-    #     return
-
     # Process each video group
     groups = config.get("video_groups", [])
+    if config.get("mask_videos", False):
+        logger.info("mask_videos=true -> generating masked copies before inference...")
+        try:
+            groups = preprocess_videos(config)
+            logger.info("Masked video groups prepared.")
+        except Exception as e:
+            logger.exception("Video masking failed. Falling back to original videos: %s", e)
+            
     if not groups:
         logger.warning("No video groups specified in config.")
     else:

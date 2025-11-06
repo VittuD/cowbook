@@ -57,7 +57,7 @@ def ensure_parent_dir(file_path: str, verify_writable: bool = True) -> None:
         ensure_directory(parent, verify_writable=verify_writable)
 
 
-def prepare_output_dirs(config: dict) -> Tuple[str, str, str]:
+def prepare_output_dirs(config: dict) -> Tuple[str, str, str, str]:
     """
     Read output directory settings from config, ensure they exist and are writable,
     and return (output_image_folder, output_video_folder, output_json_folder).
@@ -65,18 +65,20 @@ def prepare_output_dirs(config: dict) -> Tuple[str, str, str]:
     output_image_folder = config.get("output_image_folder", "output_frames")
     output_video_folder = config.get("output_video_folder", "output_videos")
     output_json_folder = config.get("output_json_folder", "output_json")
+    output_masked_folder = config.get("masked_video_folder", "masked_videos")
 
     ensure_directories(
-        [output_image_folder, output_video_folder, output_json_folder],
+        [output_image_folder, output_video_folder, output_json_folder, output_masked_folder],
         verify_writable=True,
     )
     logger.info(
-        "Output directories ready: images='%s', videos='%s', json='%s'",
+        "Output directories ready: images='%s', videos='%s', json='%s', masked='%s'",
         output_image_folder,
         output_video_folder,
         output_json_folder,
+        output_masked_folder,
     )
-    return output_image_folder, output_video_folder, output_json_folder
+    return output_image_folder, output_video_folder, output_json_folder, output_masked_folder
 
 
 def clear_output_directory(directory_path: str) -> None:
