@@ -33,7 +33,7 @@ Detect objects with Ultralytics YOLO (v8 → v11), undistort image coordinates w
 
 ## Directory Structure
 
-`
+```
 ├── config_loader.py
 ├── config.json
 ├── csv_converter.py
@@ -63,7 +63,7 @@ Detect objects with Ultralytics YOLO (v8 → v11), undistort image coordinates w
 ├── tracking.py
 ├── video_processor.py
 └── videos/
-`
+```
 
 `legacy/barn.png` (optional): background image used when drawing projected points. If missing, a blank canvas is used.
 
@@ -73,7 +73,7 @@ Detect objects with Ultralytics YOLO (v8 → v11), undistort image coordinates w
 
 Example:
 
-`
+```
 {
   "model_path": "models/yolov11_best.pt",
   "calibration_file": "legacy/calibration_matrix.json",
@@ -121,7 +121,7 @@ Example:
     ]
   ]
 }
-`
+```
 
 **Notes**
 
@@ -141,42 +141,42 @@ Example:
 
 ### 1) Install
 
-`
+```bash
 pip install -r requirements.txt
-`
+```
 
 ### 2) Run
 
-`
+```bash
 # uses config.json by default
 python main.py
 
 # explicit config (positional or flag)
 python main.py config.my.json
 python main.py --config config.my.json
-`
+```
 
 ### Command-line flags
 
 Tracking video saving:
 
-`
+```bash
 # force ON (YOLO saves annotated videos)
 python main.py --save-tracking-video
 
 # force OFF (skip saving annotated videos)
 python main.py --no-save-tracking-video
-`
+```
 
 Frame cleanup after assembling the final video (default: **ON**):
 
-`
+```bash
 # keep per-frame images (disable cleanup)
 python main.py --no-clean-frames
 
 # explicitly enable cleanup (default behavior)
 python main.py --clean-frames
-`
+```
 
 If neither cleanup flag is provided, `clean_frames_after_video` from `config.json` (default `true`) is used.
 
@@ -196,26 +196,26 @@ If neither cleanup flag is provided, `clean_frames_after_video` from `config.jso
 
 **Merge processed JSONs (per group):**
 
-`
+```bash
 python json_merger.py --inputs output_json/cam1_processed.json output_json/cam4_processed.json \
                       --output output_json/group_1_merged_processed.json
-`
+```
 
 **Convert JSON → CSV:**
 
 Single file:
 
-`
+```bash
 python csv_converter.py --input output_json/group_1_merged_processed.json --output group1.csv
-`
+```
 
 Multiple files → one CSV, with a `source` column:
 
-`
+```bash
 python csv_converter.py \
   --inputs output_json/group_1_merged_processed.json output_json/group_2_merged_processed.json \
   --output all_groups.csv --source-col source
-`
+```
 
 ---
 
@@ -276,7 +276,7 @@ Channel is chosen via `camera_to_mask_map` or `ChX` in the filename.
 
 ## Docker (example)
 
-`
+```bash
 docker run -it --rm \
   -p 8888:8888 \
   --name=yolo_cow \
@@ -284,7 +284,7 @@ docker run -it --rm \
   --gpus all \
   -v ~/COW:/ultralytics/COW \
   davidevitturini/ultralytics_jupyter
-`
+```
 
 Mount your project into the container and run the same commands inside.
 
