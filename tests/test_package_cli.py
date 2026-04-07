@@ -26,12 +26,11 @@ def test_cli_defaults_to_config_json():
 def test_cli_main_delegates_to_legacy_main(monkeypatch):
     called = {}
 
-    class FakeLegacyMain:
-        @staticmethod
-        def main(config_path):
+    class FakeRunner:
+        def run(self, config_path):
             called["config_path"] = config_path
 
-    monkeypatch.setattr(cli, "load_legacy_main_module", lambda: FakeLegacyMain)
+    monkeypatch.setattr(cli, "PipelineRunner", lambda: FakeRunner())
 
     exit_code = cli.main(["phase2.json"])
 

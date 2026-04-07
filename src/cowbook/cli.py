@@ -1,24 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import importlib
-import sys
-from pathlib import Path
 
+from cowbook.pipeline import PipelineRunner
+from cowbook.runtime import ensure_repo_root_on_path
 
 CLI_DESCRIPTION = "Process videos and create projection video."
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def ensure_repo_root_on_path() -> Path:
-    root = repo_root()
-    root_str = str(root)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
-    return root
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -38,16 +25,11 @@ def resolve_config_path(args: argparse.Namespace) -> str:
     return args.config_opt or args.config or "config.json"
 
 
-def load_legacy_main_module():
-    ensure_repo_root_on_path()
-    return importlib.import_module("main")
-
-
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     config_path = resolve_config_path(args)
-    legacy_main = load_legacy_main_module()
-    legacy_main.main(config_path)
+    ensure_repo_root_on_path()
+    PipelineRunner().run(config_path)
     return 0
 
 
