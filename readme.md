@@ -1,239 +1,308 @@
-# Multi-Camera Video Tracking & Ground Projection
+# Cowbook
 
-Detect objects with Ultralytics YOLO (v8 → v11), undistort image coordinates with a calibrated camera model, project them onto a ground plane (barn coordinates), and render a combined top-down sequence across multiple cameras.
+Cowbook is a packaged Python pipeline for multi-camera cow tracking and ground-plane projection in a fixed barn setup.
 
-## Features
+It can:
+- run YOLO tracking on one or more camera videos
+- convert detections into per-frame centroids
+- project those centroids into barn coordinates using a calibrated camera model
+- merge camera outputs at group level
+- render a combined top-down sequence
+- export JSON, CSV, and final MP4 artifacts
 
-* 🔎 YOLO tracking (Ultralytics) with per-frame JSON outputs
-* 📷 Multi-camera grouping (1–4 per group), with uniqueness validation on `camera_nr`
-* 🎯 Camera undistortion & ground projection using pre-measured 2D↔3D correspondences
-* 🖼️ Combined per-frame images of projected points (across cameras)
-* 🎞️ Video assembly from projected images
-* ⚙️ Config-driven workflow + command-line overrides
-* 🧹 Optional cleanup of rendered frames after the final video (ON by default)
+The current supported entrypoint is:
 
----
+```bash
+python -m cowbook
+```
 
-## Requirements
+## Current Layout
 
-* Python 3.10+
-* `pip install -r requirements.txt`
-* A working PyTorch + CUDA/CPU stack compatible with `ultralytics` (tested with YOLO v8–v11).
-
-### Python dependencies (from `requirements.txt`)
-
-* `ultralytics`
-* `opencv-python-headless`
-* `numpy`
-* `tqdm`
-
-> YOLO will also create `runs/track/...` outputs **only if** tracking-video saving is enabled (see flags below).
-
----
-
-## Directory Structure
-
-``` 
+```text
+.
 ├── assets/
 │   ├── calibration/
 │   ├── images/
 │   ├── masks/
 │   └── trackers/
 ├── config.json
+├── configs/
 ├── models/
 ├── sample_data/
 │   └── videos/
 ├── scripts/
 ├── src/cowbook/
+│   ├── app/
+│   ├── core/
+│   ├── execution/
+│   ├── io/
+│   ├── vision/
+│   └── workflows/
 ├── tests/
 └── var/
 ```
 
-`assets/images/barn.png` (optional): background image used when drawing projected points. If missing, a blank canvas is used.
+Directory intent:
+- `assets/`: persistent non-code assets such as calibration, masks, tracker config, and barn background
+- `configs/`: example run configs
+- `sample_data/`: local sample inputs for smoke/full runs
+- `src/cowbook/`: packaged application code
+- `var/`: runtime outputs and cache
 
----
+## Install
 
-## Configuration (`config.json`)
+Runtime install:
 
-Example:
-
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
+
+Dev install:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+```
+
+The repo expects a working PyTorch environment that is compatible with `ultralytics`. CUDA setup is external to this project.
+
+## Run
+
+Use the default config:
+
+```bash
+python -m cowbook
+```
+
+Use an explicit config:
+
+```bash
+python -m cowbook --config configs/smoke.json
+python -m cowbook configs/full.cpu.json
+```
+
+Common CLI overrides:
+
+```bash
+python -m cowbook --config configs/full.cpu.json --fps 12 --output-video-filename run.mp4
+python -m cowbook --config configs/full.cpu.json --mask-videos
+python -m cowbook --config configs/full.cpu.json --no-clean-frames-after-video
+```
+
+Supported CLI overrides:
+- `--fps`
+- `--output-video-filename`
+- `--output-image-format`
+- `--num-plot-workers`
+- `--num-tracking-workers`
+- `--create-projection-video` / `--no-create-projection-video`
+- `--clean-frames-after-video` / `--no-clean-frames-after-video`
+- `--mask-videos` / `--no-mask-videos`
+
+## Docker
+
+One Docker image is included:
+- `docker/Dockerfile`: runtime based on the official Ultralytics image
+
+The image:
+- uses `ultralytics/ultralytics:8.4.34` as the base
+- copies the repo into `/app`
+- installs the package in editable mode
+- includes the current `assets/`, `configs/`, `models/`, and `sample_data/`
+- defaults to `python -m cowbook --config config.json`
+
+Build the image:
+
+```bash
+docker build -f docker/Dockerfile -t cowbook .
+```
+
+Run it on CPU and persist outputs on the host:
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/var:/app/var" \
+  cowbook
+```
+
+Run a specific config on CPU:
+
+```bash
+docker run --rm -it \
+  -v "$(pwd)/var:/app/var" \
+  cowbook \
+  --config configs/full.cpu.json
+```
+
+Run the same image with GPU access:
+
+```bash
+docker run --rm -it \
+  --gpus all \
+  -v "$(pwd)/var:/app/var" \
+  cowbook \
+  --config configs/full.gpu.json
+```
+
+Notes:
+- the host needs a working NVIDIA driver for GPU runs
+- Docker needs NVIDIA Container Toolkit support for `--gpus all`
+- the same image can run on CPU-only hosts or on NVIDIA GPU hosts
+- pinning the Ultralytics base tag keeps the runtime reproducible
+
+If you want to override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
+
+## Config Model
+
+The runtime contract is a JSON config plus a small CLI override surface.
+
+Important fields:
+- `model_path`: YOLO weights path
+- `calibration_file`: calibration JSON, default `assets/calibration/calibration_matrix.json`
+- `video_groups`: list of groups; each group contains 1 to 4 inputs with unique `camera_nr`
+- `runtime_root`: base runtime folder, default `var`
+- `run_name`: run-scoped output namespace, default `default`
+- `mask_videos`: whether to preprocess videos through static masks before inference
+- `create_projection_video`: whether to assemble the final MP4
+- `clean_frames_after_video`: whether to delete rendered frames after video assembly
+- `convert_to_csv`: whether to export CSV beside processed and merged JSON
+
+Minimal example:
+
+```json
 {
   "model_path": "models/yolov11_best.pt",
   "calibration_file": "assets/calibration/calibration_matrix.json",
-
-  "mask_videos": true,
-  "masked_video_folder": "var/cache/masked_videos/demo_videos_masking/",
-  "num_mask_workers": 4,
-  "mask_strict_half_rule": true,
-
-  "output_image_folder": "var/runs/demo_videos_masking/frames/",
-  "output_video_folder": "var/runs/demo_videos_masking/videos/",
-  "output_json_folder": "var/runs/demo_videos_masking/json/",
-  "output_video_filename": "combined_projection.mp4",
-  "output_image_format": "jpg",
-
-  "save_tracking_video": true,
-  "create_projection_video": true,
-  "clean_frames_after_video": true,         // NEW: delete frames after video (default true)
-  "convert_to_csv": true,
+  "runtime_root": "var",
+  "run_name": "demo",
   "fps": 6,
-
-  "num_plot_workers": 8,
-  "num_tracking_workers": 1,                // NEW default: 1 to avoid GPU OOM
-
-  "masks": {
-    "Ch1": "assets/masks/combined_mask_ch1.png",
-    "Ch4": "assets/masks/combined_mask_ch4.png",
-    "Ch6": "assets/masks/combined_mask_ch6.png",
-    "Ch8": "assets/masks/combined_mask_ch8.png"
-  },
-
-  "camera_to_mask_map": {
-    "1": "Ch1",
-    "4": "Ch4",
-    "6": "Ch6",
-    "8": "Ch8"
-  },
-
+  "mask_videos": false,
+  "create_projection_video": true,
+  "clean_frames_after_video": false,
+  "convert_to_csv": true,
+  "num_plot_workers": 0,
+  "num_tracking_workers": 1,
   "video_groups": [
     [
-      { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 },
-      { "path": "sample_data/videos/Ch4_60.mp4", "camera_nr": 4 },
-      { "path": "sample_data/videos/Ch6_60.mp4", "camera_nr": 6 },
-      { "path": "sample_data/videos/Ch8_60.mp4", "camera_nr": 8 }
+      { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 }
     ]
   ]
 }
 ```
 
-**Notes**
+Notes:
+- input paths may be videos or precomputed tracking JSON files
+- `num_tracking_workers` defaults to `1` intentionally to avoid GPU contention
+- masks default to `assets/masks/*.png`
+- masked-video cache defaults to `var/cache/masked_videos`
 
-* `video_groups` is a list of groups; each group contains 1–4 entries with unique `camera_nr`.
-* You may pass **JSON files** as inputs too (skips YOLO and uses the provided tracking data).
-* Set `save_tracking_video` to `true` to make YOLO write annotated track videos under `runs/track/...`.
-* `num_plot_workers` controls parallel rendering of per-frame images (0 = sequential).
-* `num_tracking_workers` defaults to 1. Increase cautiously if your GPU has plenty of VRAM.
-* `output_image_format` can be `png` or `jpg` (jpg is smaller/faster to write).
-* Masking:
-  * A mask is chosen per input either by `camera_to_mask_map` or by filename heuristic (`Ch1|Ch4|Ch6|Ch8` in the path).
-  * Masks are applied if their size **matches** the video frame, or if the video is **exactly half** the mask size (then it is NEAREST-resized). Otherwise frames are left unmodified.
+## Output Layout
 
----
+By default, each run lives under:
 
-## Usage
-
-### 1) Install
-
-```bash
-pip install -r requirements.txt
+```text
+var/runs/<run_name>/
+├── frames/
+├── json/
+└── videos/
 ```
 
-### 2) Run
+Typical artifacts:
+- `var/runs/<run_name>/json/<input>_tracking.json`
+- `var/runs/<run_name>/json/<input>_tracking_processed.json`
+- `var/runs/<run_name>/json/group_<n>_merged_processed.json`
+- `var/runs/<run_name>/json/*.csv`
+- `var/runs/<run_name>/frames/combined_projected_centroids_frame_XXX.jpg`
+- `var/runs/<run_name>/videos/<output_video_filename>`
+- `var/cache/masked_videos/...`
+
+## Pipeline Stages
+
+For each group, the pipeline does this:
+
+1. Load and normalize config.
+2. Prepare run-scoped output directories.
+3. Optionally preprocess videos with masks.
+4. For video inputs, run YOLO tracking and emit raw tracking JSON.
+5. For each camera JSON, compute centroids and projected centroids.
+6. Render combined projected frames across the surviving cameras in the group.
+7. Merge processed JSONs into one group-level document.
+8. Export CSV files when enabled.
+9. Assemble the final MP4 when enabled.
+
+If one camera in a group fails, the group continues with surviving cameras instead of aborting the whole group.
+
+## Data Contracts
+
+High-level JSON flow:
+- raw tracking JSON: `frames`, `frame_id`, `detections.xyxy`, `labels`
+- processed JSON: adds `centroids` and `projected_centroids`
+- merged JSON: group-level merged processed output
+
+Merged identity semantics:
+- `camera_nr`: source camera
+- `local_track_id`: camera-local tracking identity
+- `global_id`: reserved for future cross-camera identity association and currently `null`
+
+Cowbook does not currently perform true barn-wide identity association. Merged outputs are structurally merged, but not globally re-identified across cameras.
+
+## Observability
+
+The pipeline now emits structured execution events rather than baking status directly into a specific interface.
+
+Current shape:
+- job lifecycle events
+- stage events such as config, masking, tracking, processing, merge, export, and video
+- artifact events for generated JSON, CSV, directories, and videos
+
+This is implemented under [src/cowbook/execution](/home/davide/Desktop/cowbook/src/cowbook/execution).
+
+Design intent:
+- the pipeline publishes structured events
+- the CLI consumes them as logs today
+- a future FastAPI/background-job layer can attach its own observer without changing the pipeline core
+
+## Assets
+
+Important asset locations:
+- calibration: [assets/calibration](/home/davide/Desktop/cowbook/assets/calibration)
+- masks: [assets/masks](/home/davide/Desktop/cowbook/assets/masks)
+- tracker config: [assets/trackers/cows_botsort.yaml](/home/davide/Desktop/cowbook/assets/trackers/cows_botsort.yaml)
+- barn background: [assets/images/barn.png](/home/davide/Desktop/cowbook/assets/images/barn.png)
+
+If `assets/images/barn.png` is missing, frame rendering falls back to a blank background.
+
+## Example Configs
+
+Included examples:
+- [config.json](/home/davide/Desktop/cowbook/config.json): default local run config
+- [configs/smoke.json](/home/davide/Desktop/cowbook/configs/smoke.json): small CPU smoke run
+- [configs/smoke.gpu.json](/home/davide/Desktop/cowbook/configs/smoke.gpu.json): small GPU smoke run
+- [configs/full.cpu.json](/home/davide/Desktop/cowbook/configs/full.cpu.json): full sample CPU run
+- [configs/full.gpu.json](/home/davide/Desktop/cowbook/configs/full.gpu.json): full sample GPU run
+
+## Caveats
+
+- Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
+- Frame merging uses `frame_id`; inputs must already be time-aligned.
+- `num_tracking_workers > 1` can increase GPU memory pressure significantly.
+- Some projection logic still relies on the legacy geometry implementation in [src/cowbook/vision/legacy_impl](/home/davide/Desktop/cowbook/src/cowbook/vision/legacy_impl).
+- YOLO API behavior can drift across `ultralytics` releases.
+
+## Development
+
+Run the checks:
 
 ```bash
-# uses config.json by default
-python -m cowbook
-
-# explicit config (positional or flag)
-python -m cowbook config.my.json
-python -m cowbook --config config.my.json
+pytest
+ruff check src/cowbook tests
 ```
 
----
-
-## Outputs
-
-* `var/runs/<run_name>/json/*.json` — tracking data per input video and per processed/merged step
-* `var/runs/<run_name>/frames/combined_projected_centroids_frame_XXX.png` — projected points across cameras for each frame index
-* `var/runs/<run_name>/videos/*.mp4` — final rendered videos for the run
-* `var/cache/masked_videos/*` — reusable masked-video cache
-
-> By default, rendered frames are deleted after the final video is created. Use `--no-clean-frames-after-video` (or set `clean_frames_after_video: false`) to keep them.
-
----
-
-## CSV conversion & JSON merging
-
-These are part of the packaged pipeline now rather than standalone repo-root scripts:
-
-* Per-group merge happens automatically after processed JSON creation.
-* CSV export happens automatically when `convert_to_csv: true`.
-* If you need custom post-processing, import the helpers from [src/cowbook/io/json_merger.py](/home/davide/Desktop/cowbook/src/cowbook/io/json_merger.py) and [src/cowbook/io/csv_converter.py](/home/davide/Desktop/cowbook/src/cowbook/io/csv_converter.py).
-
----
-
-## How it works (pipeline)
-
-1. Load config, ensure output folders exist (and `var/runs/<run_name>/frames` is cleared).
-2. For each `video_group`:
-   * Run YOLO tracking for each video (unless the input is already a JSON).
-   * Undistort detections using camera intrinsics & distortion coefficients.
-   * Project centroids to ground plane (PnP with pre-measured correspondences).
-   * Merge projected points across the group’s cameras and render per-frame images.
-   * Optionally convert processed/merged JSONs to CSV.
-3. Optionally stitch images → `combined_projection.mp4` at configured FPS.
-4. Optionally delete frames (default true).
-
----
-
-## Masking (optional)
-
-If `mask_videos=true`, videos are preprocessed into `var/cache/masked_videos/...` with static masks:
-
-* If mask resolution equals video resolution → apply directly.
-* If video is exactly half of mask resolution → mask is NEAREST-resized and applied.
-* Otherwise (mismatch) → frames are left unmodified (warning is logged).  
-Channel is chosen via `camera_to_mask_map` or `ChX` in the filename.
-
----
-
-## Troubleshooting
-
-* **Torch / CUDA not found:** install a compatible PyTorch build for your system.
-* **`calibration_matrix.json` missing:** update `calibration_file` path or provide the file.
-* **No images in `var/runs/<run_name>/frames`:** ensure `video_groups` points to existing videos/JSONs.
-* **YOLO video outputs in `runs/track/...`:** use `--no-save-tracking-video` or set `save_tracking_video: false` in config.
-* **Frames disappeared:** default cleanup is ON → use `--no-clean-frames-after-video`.
-
----
-
-## Warnings & gotchas
-
-* **Calibration & resolution coupling:** projection assumes your camera intrinsics and frame size match the calibration. In `src/cowbook/vision/legacy_impl/image_utils.py`, constants are tuned for `2688×1520`. Mismatches will degrade or break projection.
-* **Frame alignment:** merging uses integer `frame_id` only. Ensure videos are time-aligned (fps & offsets), or projections across cameras won’t represent the same moment.
-* **Frame numbering/padding:** rendered filenames pad based on total frames processed, not on max `frame_id`. If your `frame_id`s are sparse, the zero-padding may not match the highest `frame_id` magnitude (this is cosmetic).
-* **Barn background:** if `assets/images/barn.png` is missing, a blank canvas is used.
-* **OpenCV headless vs GUI:** repo uses `opencv-python-headless`. Some legacy helpers (`cv.imshow`) are present but not used in the pipeline; avoid calling them in headless environments.
-* **GPU VRAM & parallelism:** `num_tracking_workers` defaults to 1 to avoid OOM. Increase only if your GPU can handle multiple concurrent models.
-
----
-
-## Known issues / TODOs
-
-* **CSV `--source-col` header mismatch:** currently only works correctly when `--source-col source`. (Fix: align header naming in `csv_converter.py`.)
-* **`mask_strict_half_rule` not wired:** config key exists; logic currently enforces only the exact-half rule regardless. (Plumb the flag or remove it.)
-* **Ultralytics API evolution:** the `track` API may change; consider pinning `ultralytics` version or adding adapters.
-* **External JSON schema assumptions:** `processing.extract_data` assumes the raw schema written by this repo; add schema checks if ingesting third-party JSONs.
-
----
-
-## Docker (example)
-
-```bash
-docker run -it --rm \
-  -p 8888:8888 \
-  --name=yolo_cow \
-  --ipc=host \
-  --gpus all \
-  -v ~/COW:/ultralytics/COW \
-  davidevitturini/ultralytics_jupyter
-```
-
-Mount your project into the container and run the same commands inside.
-
----
+The repo currently has a passing baseline regression suite around config loading, pipeline behavior, masking, merging, CSV export, and smoke flows.
 
 ## License
 
-GPL-3.0. See `LICENSE`.
+GPL-3.0. See [LICENSE](/home/davide/Desktop/cowbook/LICENSE).
