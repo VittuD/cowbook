@@ -5,7 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cowbook import __version__, cli
+from cowbook import __version__
+from cowbook.app import cli
 
 
 def test_package_exposes_version():

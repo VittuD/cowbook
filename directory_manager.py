@@ -6,6 +6,6 @@ ensure_src_path()
 
 from cowbook import directory_manager as _impl
 
-for _name in dir(_impl):
-    if not _name.startswith("__"):
-        globals()[_name] = getattr(_impl, _name)
+for _exported_name, _value in vars(_impl).items():
+    if not _exported_name.startswith("__"):
+        globals()[_exported_name] = _value

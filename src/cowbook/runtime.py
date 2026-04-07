@@ -1,16 +1,7 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+from cowbook.core import runtime as _impl
 
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def ensure_repo_root_on_path() -> Path:
-    root = repo_root()
-    root_str = str(root)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
-    return root
+for _exported_name, _value in vars(_impl).items():
+    if not _exported_name.startswith("__"):
+        globals()[_exported_name] = _value

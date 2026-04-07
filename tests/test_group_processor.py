@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from group_processor import _json_to_csv, process_video_group
 
-from cowbook import group_processor as package_group_processor
+from cowbook.workflows import group_processor as package_group_processor
 
 
 def test_json_to_csv_converts_single_processed_json(fixtures_dir: Path, tmp_path):
