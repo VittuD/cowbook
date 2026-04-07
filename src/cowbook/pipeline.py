@@ -24,13 +24,13 @@ class PipelineRunner:
     group_processing_service: GroupProcessingService = field(default_factory=GroupProcessingService)
     video_service: VideoService = field(default_factory=VideoService)
 
-    def run(self, config_path: str) -> None:
+    def run(self, config_path: str, overrides: dict[str, object] | None = None) -> None:
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
 
-        config = self.config_service.load(config_path)
+        config = self.config_service.load(config_path, overrides=overrides)
         if not config:
             logger.error("Failed to load config from %s", config_path)
             return

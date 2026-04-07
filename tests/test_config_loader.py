@@ -29,6 +29,26 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
     assert config["masks"]["Ch1"] == "test_img/combined_mask_ch1.png"
 
 
+def test_load_config_applies_explicit_overrides(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]], "fps": 6})
+    )
+
+    config = load_config(
+        str(config_path),
+        overrides={
+            "fps": 15,
+            "output_image_format": "png",
+            "create_projection_video": False,
+        },
+    )
+
+    assert config["fps"] == 15
+    assert config["output_image_format"] == "png"
+    assert config["create_projection_video"] is False
+
+
 def test_load_config_rejects_duplicate_camera_numbers(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(

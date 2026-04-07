@@ -8,8 +8,8 @@ class FakeConfigService:
         self.config = config
         self.calls = []
 
-    def load(self, config_path):
-        self.calls.append(config_path)
+    def load(self, config_path, overrides=None):
+        self.calls.append((config_path, overrides))
         return self.config
 
 
@@ -74,9 +74,9 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
         masking_service=masking_service,
         group_processing_service=group_service,
         video_service=video_service,
-    ).run("config.json")
+    ).run("config.json", overrides={"fps": 9})
 
-    assert config_service.calls == ["config.json"]
+    assert config_service.calls == [("config.json", {"fps": 9})]
     assert directory_service.prepared == [config]
     assert directory_service.cleared == ["frames"]
     assert len(group_service.calls) == 1

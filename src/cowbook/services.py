@@ -14,9 +14,9 @@ def _import_package_module(name: str):
 
 @dataclass(slots=True)
 class ConfigService:
-    def load(self, config_path: str) -> dict[str, Any]:
+    def load(self, config_path: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         module = _import_package_module("config_loader")
-        return module.load_config(config_path)
+        return module.load_config(config_path, overrides=overrides)
 
 
 @dataclass(slots=True)
