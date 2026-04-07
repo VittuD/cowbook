@@ -96,13 +96,10 @@ def process_video_group(
     Returns:
       (output_json_paths, camera_nrs, merged_json_path)
     """
-    output_json_paths: List[str] = []
-    camera_nrs: List[int] = []
-
-# group_processor.py (replace your current "1) Track (or accept .json)..." loop inside process_video_group)
+    source_entries: List[Tuple[str, int]] = []
 
     # 1) Track (or accept .json) for each entry in the group
-    tasks: List[Tuple[str, str, object, bool]] = []
+    tasks: List[Tuple[str, str, object, bool, int]] = []
     for video_info in video_group:
         video_path = video_info["path"]
         camera_nr = int(video_info["camera_nr"])
@@ -111,8 +108,7 @@ def process_video_group(
         if str(video_path).lower().endswith(".json"):
             output_json = video_path
             logger.debug("Using existing tracking JSON: %s", output_json)
-            output_json_paths.append(output_json)
-            camera_nrs.append(camera_nr)
+            source_entries.append((output_json, camera_nr))
             continue
 
         base = os.path.splitext(os.path.basename(video_path))[0]
@@ -126,9 +122,8 @@ def process_video_group(
             # NOT an in-memory model object.
             config.get("model_path", None) if "model_path" in config else model_ref,
             bool(config.get("save_tracking_video", False)),
+            camera_nr,
         ))
-        # We still record the camera numbers aligned with videos
-        camera_nrs.append(camera_nr)
 
     # If there are tasks to run, execute them in parallel (1 worker per video by default)
     if tasks:
@@ -142,16 +137,18 @@ def process_video_group(
         # Use spawn to be CUDA-safe.
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=max_workers) as pool:
-            results = pool.starmap(_tracking_worker, tasks)
+            results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
 
         # Collect successful outputs; log failures
-        for (output_json, err), (video_path, _, _, _) in zip(results, tasks):
+        for (output_json, err), (video_path, _, _, _, camera_nr) in zip(results, tasks):
             if err:
-                logger.exception(err)
-                # Skip adding this JSON
+                logger.error("%s", err)
                 continue
             if output_json:
-                output_json_paths.append(output_json)
+                source_entries.append((output_json, camera_nr))
+
+    output_json_paths = [path for path, _camera_nr in source_entries]
+    camera_nrs = [camera_nr for _path, camera_nr in source_entries]
 
     if not output_json_paths:
         raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
@@ -169,6 +166,11 @@ def process_video_group(
     except Exception as e:
         logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
         processed_json_paths = []
+    processed_camera_nrs = [
+        camera_nr
+        for input_json_path, camera_nr in source_entries
+        if input_json_path.replace(".json", "_processed.json") in processed_json_paths
+    ]
 
     # Delete unprocessed JSONs to avoid confusion
     for json_path in output_json_paths:
@@ -190,7 +192,11 @@ def process_video_group(
                 len(processed_json_paths),
                 merged_json_path,
             )
-            merge_json_files(processed_json_paths, merged_json_path)
+            merge_json_files(
+                processed_json_paths,
+                merged_json_path,
+                camera_nrs=processed_camera_nrs,
+            )
         else:
             logger.warning("No processed JSONs to merge for group %d.", group_idx)
     except Exception as e:

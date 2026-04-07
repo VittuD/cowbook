@@ -68,16 +68,16 @@ def test_reconstruct_tracking_document_preserves_current_wire_shape():
     }
 
 
-def test_merge_tracking_documents_is_pure_and_matches_current_merge_policy(processed_tracking_doc):
+def test_merge_tracking_documents_is_pure_and_keeps_local_track_identity(processed_tracking_doc):
     merged = merge_tracking_documents([processed_tracking_doc, processed_tracking_doc])
     frame = merged["frames"][0]
 
     assert len(frame["detections"]["xyxy"]) == 4
     assert frame["labels"] == [
-        {"class_id": 0, "id": 1},
-        {"class_id": 0, "id": 2},
-        {"class_id": 0, "id": 3},
-        {"class_id": 0, "id": 4},
+        {"class_id": 0, "local_track_id": 11, "global_id": None},
+        {"class_id": 0, "local_track_id": 12, "global_id": None},
+        {"class_id": 0, "local_track_id": 11, "global_id": None},
+        {"class_id": 0, "local_track_id": 12, "global_id": None},
     ]
 
 

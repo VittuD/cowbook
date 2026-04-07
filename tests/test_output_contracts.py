@@ -47,7 +47,7 @@ def test_merged_processed_output_matches_current_contract(fixtures_dir, tmp_path
     first.write_text(fixture_text)
     second.write_text(fixture_text)
 
-    merge_json_files([str(first), str(second)], str(merged))
+    merge_json_files([str(first), str(second)], str(merged), camera_nrs=[1, 4])
     doc = json.loads(merged.read_text())
 
     _assert_raw_tracking_contract(doc)
@@ -57,3 +57,8 @@ def test_merged_processed_output_matches_current_contract(fixtures_dir, tmp_path
         assert "projected_centroids" in dets
         assert len(dets["xyxy"]) == 4
         assert len(frame["labels"]) == 4
+        for label in frame["labels"]:
+            assert "local_track_id" in label
+            assert "camera_nr" in label
+            assert "global_id" in label
+            assert "id" not in label

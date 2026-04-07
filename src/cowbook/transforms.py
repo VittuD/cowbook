@@ -51,7 +51,7 @@ def extract_frames_data(json_data: dict[str, Any]) -> list[dict[str, Any]]:
                 for bbox in frame["detections"]["xyxy"]
             ],
             "labels": [
-                {"class_id": label["class_id"], "id": label["id"]}
+                TrackingLabel.from_mapping(label).to_dict()
                 for label in frame.get("labels", [])
             ],
         }
@@ -75,7 +75,7 @@ def reconstruct_tracking_document(frames_data: list[dict[str, Any]]) -> dict[str
                     ],
                 ),
                 labels=[
-                    TrackingLabel(class_id=label["class_id"], id=label["id"])
+                    TrackingLabel.from_mapping(label)
                     for label in frame_data.get("labels", [])
                 ],
             )
@@ -95,10 +95,19 @@ def aggregate_projected_centroids(documents: Iterable[dict[str, Any]]) -> dict[i
     return all_projected_centroids
 
 
-def merge_tracking_documents(documents: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def merge_tracking_documents(
+    documents: Iterable[dict[str, Any]],
+    *,
+    camera_nrs: Iterable[int | None] | None = None,
+) -> dict[str, Any]:
     frames_acc: dict[int, dict[str, Any]] = {}
 
-    for data in documents:
+    document_list = list(documents)
+    camera_nr_list = list(camera_nrs) if camera_nrs is not None else [None] * len(document_list)
+    if len(camera_nr_list) != len(document_list):
+        raise ValueError("camera_nrs must align 1:1 with the input documents")
+
+    for data, source_camera_nr in zip(document_list, camera_nr_list):
         for frame in data.get("frames", []):
             fid = int(frame.get("frame_id", 0))
             dets = frame.get("detections", {}) or {}
@@ -130,17 +139,25 @@ def merge_tracking_documents(documents: Iterable[dict[str, Any]]) -> dict[str, A
                     bucket["projected_centroids"] = []
                 bucket["projected_centroids"].extend(projs)
 
-            bucket["labels"].extend(normalize_labels_len(labels, len(xyxy)))
+            normalized_labels = normalize_labels_len(labels, len(xyxy))
+            for label in normalized_labels:
+                tracking_label = TrackingLabel.from_mapping(label)
+                bucket["labels"].append(
+                    TrackingLabel(
+                        class_id=tracking_label.class_id,
+                        id=None,
+                        camera_nr=tracking_label.camera_nr or source_camera_nr,
+                        local_track_id=tracking_label.local_track_id or tracking_label.id,
+                        global_id=tracking_label.global_id,
+                    )
+                )
 
     merged_frames: list[TrackingFrame] = []
     for fid in sorted(frames_acc.keys()):
         bucket = frames_acc[fid]
         xyxy = bucket["xyxy"]
         labels = [
-            TrackingLabel(
-                class_id=(bucket["labels"][i].get("class_id") if i < len(bucket["labels"]) else None),
-                id=i + 1,
-            )
+            bucket["labels"][i]
             for i in range(len(xyxy))
         ]
         merged_frames.append(
@@ -176,7 +193,9 @@ def iter_csv_rows(
         for i, box in enumerate(xyxy):
             lab = labels[i] if 0 <= i < len(labels) else {}
             class_id = lab.get("class_id")
-            det_id = lab.get("id")
+            det_id = lab.get("global_id")
+            if det_id is None:
+                det_id = lab.get("local_track_id", lab.get("id"))
 
             c = cents[i] if cents and 0 <= i < len(cents) else None
             if c is not None and isinstance(c, (list, tuple)) and len(c) >= 2:

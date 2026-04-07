@@ -1,6 +1,7 @@
 # preprocess_video.py
 import concurrent.futures as futures
 import hashlib
+import json
 import logging
 import multiprocessing as mp
 import os
@@ -96,8 +97,59 @@ def _pick_fourcc(output_path: str) -> int:
     return cv2.VideoWriter_fourcc(*"mp4v")
 
 
-def _should_skip(src: str, dst: str) -> bool:
-    return os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src)
+def _metadata_path(dst: str) -> str:
+    return f"{dst}.maskmeta.json"
+
+
+def _build_mask_signature(
+    src_path: str,
+    mask_path: str | None,
+    strict_half_rule: bool,
+) -> Dict[str, Any]:
+    mask_mtime_ns = None
+    if mask_path and os.path.exists(mask_path):
+        mask_mtime_ns = os.stat(mask_path).st_mtime_ns
+
+    return {
+        "src_path": os.path.abspath(src_path),
+        "mask_path": os.path.abspath(mask_path) if mask_path else None,
+        "mask_mtime_ns": mask_mtime_ns,
+        "strict_half_rule": bool(strict_half_rule),
+    }
+
+
+def _read_mask_signature(dst: str) -> Dict[str, Any] | None:
+    metadata_path = _metadata_path(dst)
+    if not os.path.exists(metadata_path):
+        return None
+
+    with open(metadata_path, "r") as metadata_file:
+        return json.load(metadata_file)
+
+
+def _write_mask_signature(dst: str, signature: Dict[str, Any]) -> None:
+    metadata_path = _metadata_path(dst)
+    with open(metadata_path, "w") as metadata_file:
+        json.dump(signature, metadata_file, indent=2, sort_keys=True)
+
+
+def _should_skip(
+    src: str,
+    dst: str,
+    *,
+    mask_path: str | None,
+    strict_half_rule: bool,
+) -> bool:
+    if not os.path.exists(dst):
+        return False
+    if os.path.getmtime(dst) < os.path.getmtime(src):
+        return False
+    if mask_path and os.path.exists(mask_path) and os.path.getmtime(dst) < os.path.getmtime(mask_path):
+        return False
+
+    current_signature = _build_mask_signature(src, mask_path, strict_half_rule)
+    previous_signature = _read_mask_signature(dst)
+    return previous_signature == current_signature
 
 
 def _process_one_video(
@@ -152,6 +204,10 @@ def _process_one_video(
 
         cap.release()
         out.release()
+        _write_mask_signature(
+            dst_path,
+            _build_mask_signature(src_path, mask_path, strict_half_rule),
+        )
         return (src_path, dst_path, True)
     except Exception as e:
         logger.exception("Error masking %s -> %s: %s", src_path, dst_path, e)
@@ -205,7 +261,12 @@ def preprocess_videos(config: Dict) -> List[List[Dict]]:
 
     to_process = []
     for w in work_items.values():
-        if _should_skip(w["src"], w["dst"]):
+        if _should_skip(
+            w["src"],
+            w["dst"],
+            mask_path=w["mask_path"],
+            strict_half_rule=strict_half_rule,
+        ):
             logger.info("Skipping up-to-date masked video: %s", os.path.basename(w["dst"]))
             continue
         to_process.append(w)

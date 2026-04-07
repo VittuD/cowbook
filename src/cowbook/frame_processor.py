@@ -66,22 +66,32 @@ def process_and_save_frames(json_file_paths, camera_nrs, output_image_folder, ca
     # Process centroids for each JSON file
     updated_json_file_paths = []
     for json_file_path, camera_nr in zip(json_file_paths, camera_nrs):
-        frames_data = process_centroids(json_file_path, camera_nr, calibration_file)
-        
-        # Save updated frame data with projected centroids to a new JSON file, replace .json with _processed.json
-        updated_json_file_path = os.path.join(json_file_path.replace(".json", "_processed.json"))
-        save_frame_data_json(frames_data, updated_json_file_path)
-        updated_json_file_paths.append(updated_json_file_path)
-        logger.info("Processed frame data saved to %s", updated_json_file_path)
-    
+        try:
+            frames_data = process_centroids(json_file_path, camera_nr, calibration_file)
+
+            updated_json_file_path = os.path.join(
+                json_file_path.replace(".json", "_processed.json")
+            )
+            save_frame_data_json(frames_data, updated_json_file_path)
+            updated_json_file_paths.append(updated_json_file_path)
+            logger.info("Processed frame data saved to %s", updated_json_file_path)
+        except Exception as exc:
+            logger.exception(
+                "Failed processing %s for camera %d: %s",
+                json_file_path,
+                camera_nr,
+                exc,
+            )
+
     # Plot combined projected centroids from multiple JSON files for each frame and save as images
-    base_filename = os.path.join(output_image_folder, "combined_projected_centroids")
-    plot_combined_projected_centroids(
-        updated_json_file_paths,
-        base_filename,
-        num_workers=num_plot_workers,
-        image_format=output_image_format
-    )
+    if updated_json_file_paths:
+        base_filename = os.path.join(output_image_folder, "combined_projected_centroids")
+        plot_combined_projected_centroids(
+            updated_json_file_paths,
+            base_filename,
+            num_workers=num_plot_workers,
+            image_format=output_image_format,
+        )
 
     # Return processed JSON paths so caller can merge them
     return updated_json_file_paths

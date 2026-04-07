@@ -31,18 +31,40 @@ class VideoGroupItem:
 class TrackingLabel:
     class_id: int | None
     id: int | None
+    camera_nr: int | None = None
+    local_track_id: int | None = None
+    global_id: int | None = None
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "TrackingLabel":
         class_id = data.get("class_id")
         det_id = data.get("id")
+        camera_nr = data.get("camera_nr")
+        local_track_id = data.get("local_track_id")
+        global_id = data.get("global_id")
         return cls(
             class_id=int(class_id) if class_id is not None else None,
             id=int(det_id) if det_id is not None else None,
+            camera_nr=int(camera_nr) if camera_nr is not None else None,
+            local_track_id=int(local_track_id) if local_track_id is not None else None,
+            global_id=int(global_id) if global_id is not None else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"class_id": self.class_id, "id": self.id}
+        out = {"class_id": self.class_id}
+        if self.id is not None:
+            out["id"] = self.id
+        if self.camera_nr is not None:
+            out["camera_nr"] = self.camera_nr
+        if self.local_track_id is not None:
+            out["local_track_id"] = self.local_track_id
+        if (
+            self.camera_nr is not None
+            or self.local_track_id is not None
+            or self.global_id is not None
+        ):
+            out["global_id"] = self.global_id
+        return out
 
 
 @dataclass(slots=True)

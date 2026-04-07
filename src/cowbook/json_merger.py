@@ -17,7 +17,7 @@ import logging
 from typing import Any, Dict, List
 
 from cowbook.contracts import TrackingDocument
-from cowbook.transforms import centroid_from_xyxy, merge_tracking_documents
+from cowbook.transforms import merge_tracking_documents
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +26,12 @@ def _load_json(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
         return TrackingDocument.from_mapping(json.load(f)).to_dict()
 
-
-def _compute_centroids_from_xyxy(xyxy_list: List[List[float]]) -> List[List[float]]:
-    # Fallback if centroids missing (we prefer processed inputs, but this keeps it robust)
-    return [list(centroid_from_xyxy(box)) for box in xyxy_list]
-
-
-def _reassign_labels_sequential(total_dets: int, merged_labels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Build labels with id=1..total_dets; preserve class_id when available.
-    """
-    out = []
-    for i in range(total_dets):
-        class_id = None
-        if i < len(merged_labels) and isinstance(merged_labels[i], dict):
-            class_id = merged_labels[i].get("class_id")
-        out.append({"class_id": class_id, "id": i + 1})
-    return out
-
-
-def merge_json_files(input_files: List[str], output_file: str) -> None:
+def merge_json_files(
+    input_files: List[str],
+    output_file: str,
+    *,
+    camera_nrs: List[int | None] | None = None,
+) -> None:
     """
     Merge JSONs into one, including centroids & projected_centroids if present.
 
@@ -58,7 +44,7 @@ def merge_json_files(input_files: List[str], output_file: str) -> None:
       For 'projected_centroids' we include only when provided (no recomputation here).
     """
     documents = [_load_json(path) for path in input_files]
-    merged_doc = merge_tracking_documents(documents)
+    merged_doc = merge_tracking_documents(documents, camera_nrs=camera_nrs)
 
     with open(output_file, "w") as f:
         json.dump(merged_doc, f, indent=4)
