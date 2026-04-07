@@ -144,7 +144,7 @@ class PipelineConfig:
     save_tracking_video: bool = False
     create_projection_video: bool = True
     video_groups: list[list[VideoGroupItem]] = field(default_factory=list)
-    calibration_file: str = "assets/calibration/calibration_matrix.json"
+    calibration_file: str = "assets/calibration/camera_system.json"
     runtime_root: str = "var"
     run_name: str = "default"
     output_root: str = "var/runs/default"
@@ -177,7 +177,7 @@ class PipelineConfig:
             create_projection_video=bool(data.get("create_projection_video", True)),
             video_groups=groups,
             calibration_file=str(
-                data.get("calibration_file", "assets/calibration/calibration_matrix.json")
+                data.get("calibration_file", "assets/calibration/camera_system.json")
             ),
             runtime_root=str(data.get("runtime_root", "var")),
             run_name=str(data.get("run_name", "default")),

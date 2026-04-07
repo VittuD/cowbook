@@ -1,6 +1,6 @@
 {
   "model_path": "models/yolov11_best.pt",
-  "calibration_file": "assets/calibration/calibration_matrix.json",
+  "calibration_file": "assets/calibration/camera_system.json",
   "runtime_root": "var",
   "run_name": "default",
   "mask_videos": false,

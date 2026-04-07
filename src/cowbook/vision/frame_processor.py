@@ -121,8 +121,8 @@ def process_centroids(
     """
     Process detections from JSON, project centroids, and return the updated data.
     """
-    camera_model = load_camera_setup(calibration_file)
-    projection_context = load_projection_context(camera_nr, calibration_file)
+    camera_model = load_camera_setup(camera_nr, calibration_file=calibration_file)
+    projection_context = load_projection_context(camera_nr, calibration_file=calibration_file)
 
     # Load and extract data from the JSON tracking file
     json_data = parse_json(json_file)

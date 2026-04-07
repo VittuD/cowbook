@@ -161,7 +161,7 @@ The runtime contract is a JSON config plus a small CLI override surface.
 
 Important fields:
 - `model_path`: YOLO weights path
-- `calibration_file`: calibration JSON, default `assets/calibration/calibration_matrix.json`
+- `calibration_file`: calibration bundle JSON, default `assets/calibration/camera_system.json`
 - `video_groups`: list of groups; each group contains 1 to 4 inputs with unique `camera_nr`
 - `runtime_root`: base runtime folder, default `var`
 - `run_name`: run-scoped output namespace, default `default`
@@ -175,7 +175,7 @@ Minimal example:
 ```json
 {
   "model_path": "models/yolov11_best.pt",
-  "calibration_file": "assets/calibration/calibration_matrix.json",
+  "calibration_file": "assets/calibration/camera_system.json",
   "runtime_root": "var",
   "run_name": "demo",
   "fps": 6,

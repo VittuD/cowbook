@@ -14,7 +14,7 @@ def test_calibration_and_rendering_defaults_resolve_inside_repo():
     correspondences_path = Path(calibration.default_correspondences_file())
     barn_path = Path(rendering.default_barn_image_path())
 
-    assert calibration_path.name == "calibration_matrix.json"
+    assert calibration_path.name == "camera_system.json"
     assert correspondences_path.name == "camera_correspondences.json"
     assert barn_path.name == "barn.png"
     assert calibration_path.exists()

@@ -1,8 +1,33 @@
 from __future__ import annotations
 
+import json
+
 import numpy as np
 
 from cowbook.vision import calibration
+
+
+def test_default_bundle_contains_world_and_supported_cameras():
+    bundle = calibration.load_calibration_bundle()
+
+    assert bundle.world.ground_plane_z_cm == 100.0
+    assert bundle.world.barn_width_cm == 4200
+    assert bundle.world.barn_height_cm == 2950
+    assert bundle.default_spec.model_type == "pinhole"
+    assert bundle.default_spec.image_size == (2688, 1520)
+    assert sorted(bundle.cameras) == [1, 4, 6, 8]
+
+
+def test_legacy_calibration_file_remains_supported():
+    spec = calibration.resolve_camera_spec(
+        1,
+        calibration_file="assets/calibration/calibration_matrix.json",
+    )
+
+    assert spec.model_type == "pinhole"
+    assert spec.image_size == (2688, 1520)
+    assert spec.reference_points is not None
+    assert spec.reference_points.image_points.shape == (91, 2)
 
 
 def test_undistort_points_regression_values():
@@ -68,3 +93,63 @@ def test_camera_correspondences_are_available_for_supported_cameras():
     assert sorted(correspondences) == [1, 4, 6, 8]
     assert correspondences[1].image_points.shape == (91, 2)
     assert correspondences[1].object_points.shape == (91, 3)
+
+
+def test_structured_bundle_supports_per_camera_override(tmp_path):
+    bundle_path = tmp_path / "camera_bundle.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "defaults": {
+                    "model_type": "pinhole",
+                    "image_size": [100, 80],
+                    "camera_matrix": [[50.0, 0.0, 50.0], [0.0, 50.0, 40.0], [0.0, 0.0, 1.0]],
+                    "dist_coeff": [[0.0, 0.0, 0.0, 0.0]],
+                },
+                "cameras": {
+                    "9": {
+                        "model_type": "fisheye",
+                        "image_size": [64, 48],
+                        "dist_coeff": [[0.0], [0.0], [0.0], [0.0]],
+                        "reference_points": {
+                            "image_points": [[10.0, 10.0], [20.0, 20.0], [30.0, 30.0], [40.0, 40.0]],
+                            "object_points": [
+                                [0.0, 0.0, 100.0],
+                                [100.0, 0.0, 100.0],
+                                [100.0, 100.0, 100.0],
+                                [0.0, 100.0, 100.0],
+                            ],
+                        },
+                    }
+                },
+            }
+        )
+    )
+
+    spec = calibration.resolve_camera_spec(9, calibration_file=str(bundle_path))
+
+    assert spec.model_type == "fisheye"
+    assert spec.image_size == (64, 48)
+    assert spec.reference_points is not None
+    assert spec.reference_points.image_points.shape == (4, 2)
+
+
+def test_fisheye_camera_model_and_undistortion_path():
+    spec = calibration.CameraCalibrationSpec(
+        camera_nr=9,
+        model_type="fisheye",
+        image_size=(64, 48),
+        camera_matrix=np.array(
+            [[50.0, 0.0, 32.0], [0.0, 50.0, 24.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ),
+        dist_coeff=np.zeros((4, 1), dtype=np.float64),
+    )
+
+    camera_model = calibration.build_camera_model(spec)
+    undistorted = calibration.undistort_points_with_model([[12.0, 13.0], [20.0, 22.0]], camera_model)
+
+    assert camera_model.model_type == "fisheye"
+    assert undistorted.shape == (2, 2)
+    assert np.isfinite(undistorted).all()
