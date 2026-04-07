@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from cowbook.core.runtime import ensure_repo_root_on_path
-from cowbook.execution import JobReporter
+from cowbook.execution import CancellationToken, JobReporter
 
 
 def _import_package_module(name: str):
@@ -49,6 +49,7 @@ class GroupProcessingService:
         output_json_folder: str,
         output_image_folder: str,
         reporter: JobReporter | None = None,
+        cancellation_token: CancellationToken | None = None,
     ):
         module = _import_package_module("cowbook.workflows.group_processor")
         return module.process_video_group(
@@ -59,6 +60,7 @@ class GroupProcessingService:
             output_json_folder,
             output_image_folder,
             reporter=reporter,
+            cancellation_token=cancellation_token,
         )
 
 

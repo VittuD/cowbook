@@ -41,6 +41,9 @@ class InMemoryJobStore:
             run.config_path = config_path
         if event.status is not None:
             run.status = event.status
+        if event.event_type == "job_cancel_requested":
+            run.cancel_requested = True
+            run.cancel_requested_at = event.timestamp
         if event.stage is not None:
             run.current_stage = event.stage
         if event.event_type == "job_started" and run.started_at is None:

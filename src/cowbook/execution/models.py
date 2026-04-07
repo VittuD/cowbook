@@ -61,6 +61,8 @@ class JobRun:
     job_id: str
     config_path: str
     status: JobStatus = "queued"
+    cancel_requested: bool = False
+    cancel_requested_at: str | None = None
     current_stage: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
@@ -77,6 +79,8 @@ class JobRun:
             "job_id": self.job_id,
             "config_path": self.config_path,
             "status": self.status,
+            "cancel_requested": self.cancel_requested,
+            "cancel_requested_at": self.cancel_requested_at,
             "current_stage": self.current_stage,
             "started_at": self.started_at,
             "finished_at": self.finished_at,

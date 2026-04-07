@@ -5,7 +5,7 @@ import multiprocessing as mp
 import os
 from typing import List, Tuple
 
-from cowbook.execution import JobReporter
+from cowbook.execution import CancellationToken, JobCancelledError, JobReporter
 from cowbook.io.json_merger import merge_json_files
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
@@ -86,6 +86,7 @@ def process_video_group(
     output_json_folder: str,
     output_image_folder: str,
     reporter: JobReporter | None = None,
+    cancellation_token: CancellationToken | None = None,
 ) -> Tuple[List[str], List[int], str]:
     """
     Process one group of videos:
@@ -100,6 +101,7 @@ def process_video_group(
     """
     source_entries: List[Tuple[str, int]] = []
     precomputed_json_count = 0
+    _raise_if_cancelled(cancellation_token)
 
     if reporter is not None:
         reporter.emit(
@@ -159,6 +161,7 @@ def process_video_group(
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=max_workers) as pool:
             results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
+        _raise_if_cancelled(cancellation_token)
 
         for (output_json, err), (_, _, _, _, camera_nr) in zip(results, tasks):
             if err:
@@ -208,6 +211,7 @@ def process_video_group(
     if not output_json_paths:
         raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
 
+    _raise_if_cancelled(cancellation_token)
     if reporter is not None:
         reporter.emit(
             "processing_started",
@@ -223,8 +227,11 @@ def process_video_group(
             config["calibration_file"],
             num_plot_workers=config.get("num_plot_workers", 0),
             output_image_format=config.get("output_image_format", "png"),
+            cancellation_token=cancellation_token,
         )
     except Exception as e:
+        if isinstance(e, JobCancelledError):
+            raise
         logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
         processed_json_paths = []
         if reporter is not None:
@@ -268,6 +275,7 @@ def process_video_group(
     merged_json_path = os.path.join(
         output_json_folder, f"group_{group_idx}_merged_processed.json"
     )
+    _raise_if_cancelled(cancellation_token)
     try:
         if processed_json_paths:
             if reporter is not None:
@@ -311,6 +319,7 @@ def process_video_group(
     if config.get("convert_to_csv", True):
         csv_paths: List[str] = []
         for pjson in processed_json_paths:
+            _raise_if_cancelled(cancellation_token)
             if pjson and pjson.endswith("_processed.json") and os.path.exists(pjson):
                 csv_path = _json_to_csv(pjson)
                 if csv_path:
@@ -319,6 +328,7 @@ def process_video_group(
                         reporter.artifact("csv", csv_path, group_idx=group_idx)
 
         if merged_json_path and os.path.exists(merged_json_path):
+            _raise_if_cancelled(cancellation_token)
             csv_path = _json_to_csv(merged_json_path)
             if csv_path:
                 csv_paths.append(csv_path)
@@ -345,3 +355,8 @@ def process_video_group(
         )
 
     return output_json_paths, camera_nrs, merged_json_path
+
+
+def _raise_if_cancelled(cancellation_token: CancellationToken | None) -> None:
+    if cancellation_token is not None:
+        cancellation_token.raise_if_cancelled()

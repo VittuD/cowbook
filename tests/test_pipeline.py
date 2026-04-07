@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from cowbook.app.pipeline import PipelineRunner
-from cowbook.execution import InMemoryJobStore
+from cowbook.execution import CancellationToken, InMemoryJobStore
 
 
 class FakeConfigService:
@@ -41,8 +41,8 @@ class FakeGroupProcessingService:
     def __init__(self):
         self.calls = []
 
-    def process_group(self, *args, reporter=None):
-        self.calls.append(args)
+    def process_group(self, *args, reporter=None, cancellation_token=None):
+        self.calls.append((args, cancellation_token))
         if reporter is not None:
             reporter.emit("group_completed", stage="group", group_idx=args[0])
 
@@ -115,7 +115,7 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
     ).run("config.json")
 
     assert masking_service.calls == [config]
-    assert group_service.calls[0][1] == masked_groups[0]
+    assert group_service.calls[0][0][1] == masked_groups[0]
     assert directory_service.cleared == ["frames", "frames"]
     assert snapshot.status == "completed"
 
@@ -157,3 +157,32 @@ def test_pipeline_runner_can_publish_events_to_external_observer():
         "group_completed",
         "job_completed",
     ]
+
+
+def test_pipeline_runner_marks_job_cancelled_before_group_processing():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": True,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    cancellation_token = CancellationToken()
+    cancellation_token.cancel()
+
+    group_service = FakeGroupProcessingService()
+    video_service = FakeVideoService()
+    snapshot = PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=group_service,
+        video_service=video_service,
+    ).run("config.json", cancellation_token=cancellation_token)
+
+    assert snapshot is not None
+    assert snapshot.status == "cancelled"
+    assert group_service.calls == []
+    assert video_service.calls == []

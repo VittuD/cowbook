@@ -12,8 +12,10 @@ from cowbook.app.services import (
     VideoService,
 )
 from cowbook.execution import (
+    CancellationToken,
     CompositeObserver,
     InMemoryJobStore,
+    JobCancelledError,
     JobObserver,
     JobReporter,
     new_job_id,
@@ -37,6 +39,7 @@ class PipelineRunner:
         *,
         observer: JobObserver | None = None,
         job_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
     ):
         logging.basicConfig(
             level=logging.INFO,
@@ -58,6 +61,8 @@ class PipelineRunner:
             stage="config",
             payload={"overrides": dict(overrides or {})},
         )
+        if self._cancel_if_requested(reporter, cancellation_token, stage="config"):
+            return run_store.get(reporter.job_id)
 
         config = self.config_service.load(config_path, overrides=overrides)
         if not config:
@@ -98,6 +103,8 @@ class PipelineRunner:
             stage="setup",
             payload={"path": output_image_folder},
         )
+        if self._cancel_if_requested(reporter, cancellation_token, stage="setup"):
+            return run_store.get(reporter.job_id)
 
         groups = config.get("video_groups", [])
         reporter.emit("groups_discovered", stage="groups", payload={"count": len(groups)})
@@ -124,6 +131,8 @@ class PipelineRunner:
                     message="Video masking failed. Falling back to original videos.",
                     payload={"error": str(exc), "fallback": "original_videos"},
                 )
+        if self._cancel_if_requested(reporter, cancellation_token, stage="groups"):
+            return run_store.get(reporter.job_id)
 
         if not groups:
             logger.warning("No video groups specified in config.")
@@ -134,6 +143,8 @@ class PipelineRunner:
             )
         else:
             for idx, video_group in enumerate(groups, start=1):
+                if self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx):
+                    return run_store.get(reporter.job_id)
                 logger.info("=== Group %d/%d ===", idx, len(groups))
                 try:
                     self.group_processing_service.process_group(
@@ -144,7 +155,18 @@ class PipelineRunner:
                         output_json_folder,
                         output_image_folder,
                         reporter=reporter,
+                        cancellation_token=cancellation_token,
                     )
+                except JobCancelledError:
+                    reporter.emit(
+                        "group_cancelled",
+                        status="cancelling",
+                        stage="group",
+                        group_idx=idx,
+                        message=f"Group {idx} cancelled.",
+                    )
+                    self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx)
+                    return run_store.get(reporter.job_id)
                 except Exception as exc:
                     logger.exception("Group %d failed: %s", idx, exc)
                     reporter.emit(
@@ -156,6 +178,8 @@ class PipelineRunner:
                     )
 
         if config.get("create_projection_video", True):
+            if self._cancel_if_requested(reporter, cancellation_token, stage="video"):
+                return run_store.get(reporter.job_id)
             output_video_path = os.path.join(
                 output_video_folder,
                 config.get("output_video_filename", "combined_projection.mp4"),
@@ -208,3 +232,22 @@ class PipelineRunner:
             payload={"had_errors": bool(snapshot.errors) if snapshot else False},
         )
         return run_store.get(reporter.job_id)
+
+    def _cancel_if_requested(
+        self,
+        reporter: JobReporter,
+        cancellation_token: CancellationToken | None,
+        *,
+        stage: str,
+        group_idx: int | None = None,
+    ) -> bool:
+        if cancellation_token is None or not cancellation_token.is_cancelled():
+            return False
+        reporter.emit(
+            "job_cancelled",
+            status="cancelled",
+            stage=stage,
+            group_idx=group_idx,
+            message="Job cancelled.",
+        )
+        return True

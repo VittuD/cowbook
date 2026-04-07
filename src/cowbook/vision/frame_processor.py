@@ -6,6 +6,7 @@ import os
 
 from tqdm import tqdm
 
+from cowbook.execution import CancellationToken
 from cowbook.vision.calibration import (
     load_camera_setup,
     load_projection_context,
@@ -52,8 +53,15 @@ def _render_frame_worker(args):
     )
     return frame_output_path
 
-def process_and_save_frames(json_file_paths, camera_nrs, output_image_folder, calibration_file,
-                            num_plot_workers=0, output_image_format="jpg"):
+def process_and_save_frames(
+    json_file_paths,
+    camera_nrs,
+    output_image_folder,
+    calibration_file,
+    num_plot_workers=0,
+    output_image_format="jpg",
+    cancellation_token: CancellationToken | None = None,
+):
     """
     Process detections from each of the JSON files, project centroids,
     later saves each frame as an image by combining the projected points of each JSON.
@@ -69,7 +77,12 @@ def process_and_save_frames(json_file_paths, camera_nrs, output_image_folder, ca
     updated_json_file_paths = []
     for json_file_path, camera_nr in zip(json_file_paths, camera_nrs):
         try:
-            frames_data = process_centroids(json_file_path, camera_nr, calibration_file)
+            frames_data = process_centroids(
+                json_file_path,
+                camera_nr,
+                calibration_file,
+                cancellation_token=cancellation_token,
+            )
 
             updated_json_file_path = os.path.join(
                 json_file_path.replace(".json", "_processed.json")
@@ -93,12 +106,18 @@ def process_and_save_frames(json_file_paths, camera_nrs, output_image_folder, ca
             base_filename,
             num_workers=num_plot_workers,
             image_format=output_image_format,
+            cancellation_token=cancellation_token,
         )
 
     # Return processed JSON paths so caller can merge them
     return updated_json_file_paths
 
-def process_centroids(json_file, camera_nr, calibration_file):
+def process_centroids(
+    json_file,
+    camera_nr,
+    calibration_file,
+    cancellation_token: CancellationToken | None = None,
+):
     """
     Process detections from JSON, project centroids, and return the updated data.
     """
@@ -111,6 +130,8 @@ def process_centroids(json_file, camera_nr, calibration_file):
     
     # Process each frame
     for frame in tqdm(frames_data, desc=f"Processing frames for camera {camera_nr}", unit="frame"):
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         # Step 1: Undistort detections and centroids
         frame = process_detections(frame, camera_model)
         
@@ -133,7 +154,13 @@ def save_frame_data_json(frames_data, output_json_path):
     with open(output_json_path, 'w') as output_file:
         json.dump(frames_data_json, output_file, indent=4)
 
-def plot_combined_projected_centroids(json_file_paths, base_filename, num_workers=0, image_format="png"):
+def plot_combined_projected_centroids(
+    json_file_paths,
+    base_filename,
+    num_workers=0,
+    image_format="png",
+    cancellation_token: CancellationToken | None = None,
+):
     """
     Plot combined projected centroids from multiple JSON files for each frame and save as images.
 
@@ -158,6 +185,8 @@ def plot_combined_projected_centroids(json_file_paths, base_filename, num_worker
     barn_image_path = default_barn_image_path()
     items = []
     for frame_id in sorted(all_projected_centroids.keys()):
+        if cancellation_token is not None:
+            cancellation_token.raise_if_cancelled()
         projected_centroids = all_projected_centroids[frame_id]
         frame_num_str = str(frame_id).zfill(num_digits)
         frame_output_path = f"{base_filename}_frame_{frame_num_str}{ext}"
