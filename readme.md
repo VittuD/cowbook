@@ -160,9 +160,10 @@ python -m cowbook --config config.my.json
 
 ## Outputs
 
-* `output_json/*.json` — tracking data per input video and per processed/merged step
-* `output_frames/combined_projected_centroids_frame_XXX.png` — projected points across cameras for each frame index
-* `output_videos/combined_projection.mp4` — single video built from the frames (if `create_projection_video=true`)
+* `var/runs/<run_name>/json/*.json` — tracking data per input video and per processed/merged step
+* `var/runs/<run_name>/frames/combined_projected_centroids_frame_XXX.png` — projected points across cameras for each frame index
+* `var/runs/<run_name>/videos/*.mp4` — final rendered videos for the run
+* `var/cache/masked_videos/*` — reusable masked-video cache
 
 > By default, `output_frames` are **deleted** after the final video is created. Use `--no-clean-frames` (or set `clean_frames_after_video: false`) to keep them.
 

@@ -4,9 +4,41 @@ import logging
 import os
 import shutil
 import tempfile
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_RUNTIME_ROOT = "var"
+DEFAULT_RUN_NAME = "default"
+
+
+def resolve_output_paths(config: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
+    runtime_root = str(config.get("runtime_root", DEFAULT_RUNTIME_ROOT))
+    run_name = str(config.get("run_name", DEFAULT_RUN_NAME))
+    output_root = str(
+        config.get("output_root", os.path.join(runtime_root, "runs", run_name))
+    )
+    output_image_folder = str(
+        config.get("output_image_folder", os.path.join(output_root, "frames"))
+    )
+    output_video_folder = str(
+        config.get("output_video_folder", os.path.join(output_root, "videos"))
+    )
+    output_json_folder = str(
+        config.get("output_json_folder", os.path.join(output_root, "json"))
+    )
+    output_masked_folder = str(
+        config.get("masked_video_folder", os.path.join(runtime_root, "cache", "masked_videos"))
+    )
+
+    return (
+        runtime_root,
+        output_root,
+        output_image_folder,
+        output_video_folder,
+        output_json_folder,
+        output_masked_folder,
+    )
 
 
 def _verify_writable(directory_path: str) -> None:
@@ -62,10 +94,22 @@ def prepare_output_dirs(config: dict) -> Tuple[str, str, str, str]:
     Read output directory settings from config, ensure they exist and are writable,
     and return (output_image_folder, output_video_folder, output_json_folder).
     """
-    output_image_folder = config.get("output_image_folder", "output_frames")
-    output_video_folder = config.get("output_video_folder", "output_videos")
-    output_json_folder = config.get("output_json_folder", "output_json")
-    output_masked_folder = config.get("masked_video_folder", "masked_videos")
+    (
+        runtime_root,
+        output_root,
+        output_image_folder,
+        output_video_folder,
+        output_json_folder,
+        output_masked_folder,
+    ) = resolve_output_paths(config)
+
+    config["runtime_root"] = runtime_root
+    config["run_name"] = str(config.get("run_name", DEFAULT_RUN_NAME))
+    config["output_root"] = output_root
+    config["output_image_folder"] = output_image_folder
+    config["output_video_folder"] = output_video_folder
+    config["output_json_folder"] = output_json_folder
+    config["masked_video_folder"] = output_masked_folder
 
     ensure_directories(
         [output_image_folder, output_video_folder, output_json_folder, output_masked_folder],

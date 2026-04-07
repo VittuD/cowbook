@@ -27,6 +27,9 @@ def test_pipeline_config_round_trip_matches_current_shape():
     assert data["fps"] == 12
     assert data["video_groups"] == [[{"path": "videos/a.mp4", "camera_nr": 1}]]
     assert data["camera_to_mask_map"] == {"1": "Ch1"}
+    assert data["runtime_root"] == "var"
+    assert data["run_name"] == "default"
+    assert data["output_root"] == "var/runs/default"
     assert data["masks"]["Ch1"] == "test_img/combined_mask_ch1.png"
 
 

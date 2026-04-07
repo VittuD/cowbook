@@ -145,17 +145,20 @@ class PipelineConfig:
     create_projection_video: bool = True
     video_groups: list[list[VideoGroupItem]] = field(default_factory=list)
     calibration_file: str = "legacy/calibration_matrix.json"
+    runtime_root: str = "var"
+    run_name: str = "default"
+    output_root: str = "var/runs/default"
     num_plot_workers: int = 0
     output_image_format: str = "jpg"
-    output_image_folder: str = "output_frames"
-    output_video_folder: str = "output_videos"
-    output_json_folder: str = "output_json"
+    output_image_folder: str = "var/runs/default/frames"
+    output_video_folder: str = "var/runs/default/videos"
+    output_json_folder: str = "var/runs/default/json"
     output_video_filename: str = "combined_projection.mp4"
     convert_to_csv: bool = True
     clean_frames_after_video: bool = True
     num_tracking_workers: int = 1
     mask_videos: bool = False
-    masked_video_folder: str = "masked_videos"
+    masked_video_folder: str = "var/cache/masked_videos"
     num_mask_workers: int = 0
     mask_strict_half_rule: bool = True
     masks: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_MASKS))
@@ -174,17 +177,20 @@ class PipelineConfig:
             create_projection_video=bool(data.get("create_projection_video", True)),
             video_groups=groups,
             calibration_file=str(data.get("calibration_file", "legacy/calibration_matrix.json")),
+            runtime_root=str(data.get("runtime_root", "var")),
+            run_name=str(data.get("run_name", "default")),
+            output_root=str(data.get("output_root", "var/runs/default")),
             num_plot_workers=int(data.get("num_plot_workers", 0)),
             output_image_format=str(data.get("output_image_format", "jpg")),
-            output_image_folder=str(data.get("output_image_folder", "output_frames")),
-            output_video_folder=str(data.get("output_video_folder", "output_videos")),
-            output_json_folder=str(data.get("output_json_folder", "output_json")),
+            output_image_folder=str(data.get("output_image_folder", "var/runs/default/frames")),
+            output_video_folder=str(data.get("output_video_folder", "var/runs/default/videos")),
+            output_json_folder=str(data.get("output_json_folder", "var/runs/default/json")),
             output_video_filename=str(data.get("output_video_filename", "combined_projection.mp4")),
             convert_to_csv=bool(data.get("convert_to_csv", True)),
             clean_frames_after_video=bool(data.get("clean_frames_after_video", True)),
             num_tracking_workers=int(data.get("num_tracking_workers", 1)),
             mask_videos=bool(data.get("mask_videos", False)),
-            masked_video_folder=str(data.get("masked_video_folder", "masked_videos")),
+            masked_video_folder=str(data.get("masked_video_folder", "var/cache/masked_videos")),
             num_mask_workers=int(data.get("num_mask_workers", 0)),
             mask_strict_half_rule=bool(data.get("mask_strict_half_rule", True)),
             masks={str(k): str(v) for k, v in (data.get("masks", DEFAULT_MASKS) or {}).items()},
@@ -201,6 +207,9 @@ class PipelineConfig:
             "create_projection_video": self.create_projection_video,
             "video_groups": [[item.to_dict() for item in group] for group in self.video_groups],
             "calibration_file": self.calibration_file,
+            "runtime_root": self.runtime_root,
+            "run_name": self.run_name,
+            "output_root": self.output_root,
             "num_plot_workers": self.num_plot_workers,
             "output_image_format": self.output_image_format,
             "output_image_folder": self.output_image_folder,

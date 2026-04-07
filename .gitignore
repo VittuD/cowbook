@@ -22,13 +22,10 @@ __pycache__/
 build/
 dist/
 
-# Contents of i/o folder
-output_frames/
-output_json/
-output_videos/
+# Runtime artifacts
+var/
 videos/
 VideoVanzetti04042024/*
 VideoVanzetti23042024/json/*
 runs/*
-masked_videos/*
 vanzetti_1hr/*

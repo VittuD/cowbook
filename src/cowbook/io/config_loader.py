@@ -5,6 +5,7 @@ import logging
 import os
 
 from cowbook.core.contracts import PipelineConfig
+from cowbook.io.directory_manager import resolve_output_paths
 from cowbook.vision.legacy_bridge import default_calibration_file
 
 logger = logging.getLogger(__name__)
@@ -25,13 +26,12 @@ def load_config(config_path, overrides=None):
         config.setdefault("create_projection_video", True)
         config.setdefault("video_groups", [])
         config.setdefault("calibration_file", default_calibration_file())
+        config.setdefault("runtime_root", "var")
+        config.setdefault("run_name", "default")
         # Parallel rendering & image format
         config.setdefault("num_plot_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)            # 0 = sequential; >0 uses ProcessPoolExecutor
         config.setdefault("output_image_format", "jpg")     # "png" or "jpg"
         # Output directories & filename
-        config.setdefault("output_image_folder", "output_frames")
-        config.setdefault("output_video_folder", "output_videos")
-        config.setdefault("output_json_folder", "output_json")
         config.setdefault("output_video_filename", "combined_projection.mp4")
         # CSV conversion
         config.setdefault("convert_to_csv", True)
@@ -41,7 +41,6 @@ def load_config(config_path, overrides=None):
         config.setdefault("num_tracking_workers", 1)
         # ---- Masking at inference ----
         config.setdefault("mask_videos", False)
-        config.setdefault("masked_video_folder", "masked_videos")
         config.setdefault("num_mask_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)
         config.setdefault("mask_strict_half_rule", True)
         # Per-channel mask image paths (override in your JSON if you store masks elsewhere)
@@ -75,6 +74,21 @@ def load_config(config_path, overrides=None):
             raise ValueError(f"Invalid output_image_format: {fmt}. Use 'png' or 'jpg'.")
         # normalize "jpeg" -> "jpg"
         config["output_image_format"] = "jpg" if fmt in {"jpg", "jpeg"} else "png"
+
+        (
+            runtime_root,
+            output_root,
+            output_image_folder,
+            output_video_folder,
+            output_json_folder,
+            output_masked_folder,
+        ) = resolve_output_paths(config)
+        config["runtime_root"] = runtime_root
+        config["output_root"] = output_root
+        config["output_image_folder"] = output_image_folder
+        config["output_video_folder"] = output_video_folder
+        config["output_json_folder"] = output_json_folder
+        config["masked_video_folder"] = output_masked_folder
 
         # ---- Validate video groups ----
         # Expected: List[List[dict(path:str, camera_nr:int)]]
