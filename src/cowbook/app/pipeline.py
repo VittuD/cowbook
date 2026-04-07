@@ -11,6 +11,13 @@ from cowbook.app.services import (
     MaskingService,
     VideoService,
 )
+from cowbook.execution import (
+    CompositeObserver,
+    InMemoryJobStore,
+    JobObserver,
+    JobReporter,
+    new_job_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +30,56 @@ class PipelineRunner:
     group_processing_service: GroupProcessingService = field(default_factory=GroupProcessingService)
     video_service: VideoService = field(default_factory=VideoService)
 
-    def run(self, config_path: str, overrides: dict[str, object] | None = None) -> None:
+    def run(
+        self,
+        config_path: str,
+        overrides: dict[str, object] | None = None,
+        *,
+        observer: JobObserver | None = None,
+        job_id: str | None = None,
+    ):
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
 
+        run_store = InMemoryJobStore()
+        observers = [run_store]
+        if observer is not None:
+            observers.append(observer)
+        reporter = JobReporter(
+            job_id=job_id or new_job_id(),
+            config_path=config_path,
+            observer=CompositeObserver(observers),
+        )
+        reporter.emit(
+            "job_started",
+            status="running",
+            stage="config",
+            payload={"overrides": dict(overrides or {})},
+        )
+
         config = self.config_service.load(config_path, overrides=overrides)
         if not config:
             logger.error("Failed to load config from %s", config_path)
-            return
+            reporter.emit(
+                "job_failed",
+                status="failed",
+                stage="config",
+                message=f"Failed to load config from {config_path}",
+                payload={"error": "config_load_failed"},
+            )
+            return run_store.get(reporter.job_id)
+
+        reporter.emit(
+            "config_loaded",
+            stage="config",
+            payload={
+                "run_name": config.get("run_name"),
+                "runtime_root": config.get("runtime_root"),
+                "output_root": config.get("output_root"),
+            },
+        )
 
         (
             output_image_folder,
@@ -40,20 +87,51 @@ class PipelineRunner:
             output_json_folder,
             _output_masked_folder,
         ) = self.directory_service.prepare_output_dirs(config)
+        reporter.emit("output_dirs_prepared", stage="setup")
+        reporter.artifact("output_dir", output_image_folder, metadata={"role": "frames"})
+        reporter.artifact("output_dir", output_video_folder, metadata={"role": "videos"})
+        reporter.artifact("output_dir", output_json_folder, metadata={"role": "json"})
 
         self.directory_service.clear_output_directory(output_image_folder)
+        reporter.emit(
+            "output_frames_cleared",
+            stage="setup",
+            payload={"path": output_image_folder},
+        )
 
         groups = config.get("video_groups", [])
+        reporter.emit("groups_discovered", stage="groups", payload={"count": len(groups)})
         if config.get("mask_videos", False):
             logger.info("mask_videos=true -> generating masked copies before inference...")
+            reporter.emit(
+                "masking_started",
+                stage="masking",
+                payload={"group_count": len(groups)},
+            )
             try:
                 groups = self.masking_service.preprocess(config)
                 logger.info("Masked video groups prepared.")
+                reporter.emit(
+                    "masking_completed",
+                    stage="masking",
+                    payload={"group_count": len(groups)},
+                )
             except Exception as exc:
                 logger.exception("Video masking failed. Falling back to original videos: %s", exc)
+                reporter.emit(
+                    "masking_failed",
+                    stage="masking",
+                    message="Video masking failed. Falling back to original videos.",
+                    payload={"error": str(exc), "fallback": "original_videos"},
+                )
 
         if not groups:
             logger.warning("No video groups specified in config.")
+            reporter.emit(
+                "groups_empty",
+                stage="groups",
+                message="No video groups specified in config.",
+            )
         else:
             for idx, video_group in enumerate(groups, start=1):
                 logger.info("=== Group %d/%d ===", idx, len(groups))
@@ -65,9 +143,17 @@ class PipelineRunner:
                         config,
                         output_json_folder,
                         output_image_folder,
+                        reporter=reporter,
                     )
                 except Exception as exc:
                     logger.exception("Group %d failed: %s", idx, exc)
+                    reporter.emit(
+                        "group_failed",
+                        stage="group",
+                        group_idx=idx,
+                        message=f"Group {idx} failed.",
+                        payload={"error": str(exc)},
+                    )
 
         if config.get("create_projection_video", True):
             output_video_path = os.path.join(
@@ -76,13 +162,49 @@ class PipelineRunner:
             )
             fps = config["fps"]
             logger.info("Generating combined projection video at %d FPS -> %s", fps, output_video_path)
+            reporter.emit(
+                "video_started",
+                stage="video",
+                payload={"path": output_video_path, "fps": fps},
+            )
             try:
                 self.video_service.create_projection_video(output_image_folder, output_video_path, fps)
                 logger.info("Combined projection video generated successfully.")
+                reporter.artifact("projection_video", output_video_path)
+                reporter.emit(
+                    "video_completed",
+                    stage="video",
+                    payload={"path": output_video_path, "fps": fps},
+                )
                 if config.get("clean_frames_after_video", True):
                     logger.info("Cleaning up intermediate frames in %s ...", output_image_folder)
                     self.directory_service.clear_output_directory(output_image_folder)
+                    reporter.emit(
+                        "output_frames_cleared",
+                        stage="video",
+                        payload={"path": output_image_folder, "reason": "post_video_cleanup"},
+                    )
                 else:
                     logger.info("Keeping intermediate frames (clean_frames_after_video=false).")
+                    reporter.emit(
+                        "output_frames_retained",
+                        stage="video",
+                        payload={"path": output_image_folder},
+                    )
             except Exception as exc:
                 logger.exception("Failed to create video: %s", exc)
+                reporter.emit(
+                    "video_failed",
+                    stage="video",
+                    message="Failed to create projection video.",
+                    payload={"error": str(exc), "path": output_video_path},
+                )
+
+        snapshot = run_store.get(reporter.job_id)
+        reporter.emit(
+            "job_completed",
+            status="completed",
+            stage="pipeline",
+            payload={"had_errors": bool(snapshot.errors) if snapshot else False},
+        )
+        return run_store.get(reporter.job_id)

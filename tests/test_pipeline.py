@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cowbook.app.pipeline import PipelineRunner
+from cowbook.execution import InMemoryJobStore
 
 
 class FakeConfigService:
@@ -40,8 +41,10 @@ class FakeGroupProcessingService:
     def __init__(self):
         self.calls = []
 
-    def process_group(self, *args):
+    def process_group(self, *args, reporter=None):
         self.calls.append(args)
+        if reporter is not None:
+            reporter.emit("group_completed", stage="group", group_idx=args[0])
 
 
 class FakeVideoService:
@@ -68,7 +71,7 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
     group_service = FakeGroupProcessingService()
     video_service = FakeVideoService()
 
-    PipelineRunner(
+    snapshot = PipelineRunner(
         config_service=config_service,
         directory_service=directory_service,
         masking_service=masking_service,
@@ -81,6 +84,10 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
     assert directory_service.cleared == ["frames"]
     assert len(group_service.calls) == 1
     assert video_service.calls == [("frames", "videos/projection.mp4", 6)]
+    assert snapshot.status == "completed"
+    assert snapshot.groups_total == 1
+    assert snapshot.groups_completed == 1
+    assert {artifact.kind for artifact in snapshot.artifacts} == {"output_dir", "projection_video"}
 
 
 def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
@@ -99,7 +106,7 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
     group_service = FakeGroupProcessingService()
     video_service = FakeVideoService()
 
-    PipelineRunner(
+    snapshot = PipelineRunner(
         config_service=FakeConfigService(config),
         directory_service=directory_service,
         masking_service=masking_service,
@@ -110,3 +117,43 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
     assert masking_service.calls == [config]
     assert group_service.calls[0][1] == masked_groups[0]
     assert directory_service.cleared == ["frames", "frames"]
+    assert snapshot.status == "completed"
+
+
+def test_pipeline_runner_can_publish_events_to_external_observer():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    observer = InMemoryJobStore()
+
+    snapshot = PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-123")
+
+    mirrored = observer.get("job-123")
+
+    assert snapshot is not None
+    assert mirrored is not None
+    assert mirrored.status == "completed"
+    assert [event.event_type for event in mirrored.events] == [
+        "job_started",
+        "config_loaded",
+        "output_dirs_prepared",
+        "artifact_created",
+        "artifact_created",
+        "artifact_created",
+        "output_frames_cleared",
+        "groups_discovered",
+        "group_completed",
+        "job_completed",
+    ]

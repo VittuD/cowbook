@@ -5,6 +5,7 @@ import multiprocessing as mp
 import os
 from typing import List, Tuple
 
+from cowbook.execution import JobReporter
 from cowbook.io.json_merger import merge_json_files
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
@@ -19,27 +20,26 @@ except Exception:  # pragma: no cover
     _csv = None
 
 
-
-def _tracking_worker(video_path: str,
-                     output_json: str,
-                     model_ref: str,
-                     save: bool) -> Tuple[str | None, str | None]:
+def _tracking_worker(
+    video_path: str,
+    output_json: str,
+    model_ref: str,
+    save: bool,
+) -> Tuple[str | None, str | None]:
     """
     Run tracking for a single video in a separate process.
 
     Returns:
         (output_json_or_none, error_message_or_none)
     """
-    # Optional: keep CPU threads per worker low to avoid oversubscription.
     try:
         import torch  # type: ignore
+
         torch.set_num_threads(1)
     except Exception:
         pass
 
     try:
-        # IMPORTANT: track_video_with_yolo should *load its own model* from model_ref
-        # (e.g., a weights path or config). Do *not* pass in-memory model objects here.
         track_video_with_yolo(
             video_path,
             output_json,
@@ -49,6 +49,7 @@ def _tracking_worker(video_path: str,
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
+
 
 def _json_to_csv(json_path: str) -> str | None:
     """
@@ -65,7 +66,7 @@ def _json_to_csv(json_path: str) -> str | None:
 
     try:
         doc = _csv._load_json(json_path)  # type: ignore[attr-defined]
-        # Generate rows and write CSV (no source column for single-file conversion)
+
         def _rows():
             yield from _csv._iter_rows_from_json(doc, source_tag=None)  # type: ignore[attr-defined]
 
@@ -84,6 +85,7 @@ def process_video_group(
     config: dict,
     output_json_folder: str,
     output_image_folder: str,
+    reporter: JobReporter | None = None,
 ) -> Tuple[List[str], List[int], str]:
     """
     Process one group of videos:
@@ -97,8 +99,16 @@ def process_video_group(
       (output_json_paths, camera_nrs, merged_json_path)
     """
     source_entries: List[Tuple[str, int]] = []
+    precomputed_json_count = 0
 
-    # 1) Track (or accept .json) for each entry in the group
+    if reporter is not None:
+        reporter.emit(
+            "group_started",
+            stage="group",
+            group_idx=group_idx,
+            payload={"input_count": len(video_group)},
+        )
+
     tasks: List[Tuple[str, str, object, bool, int]] = []
     for video_info in video_group:
         video_path = video_info["path"]
@@ -109,43 +119,88 @@ def process_video_group(
             output_json = video_path
             logger.debug("Using existing tracking JSON: %s", output_json)
             source_entries.append((output_json, camera_nr))
+            precomputed_json_count += 1
+            if reporter is not None:
+                reporter.artifact(
+                    "tracking_json",
+                    output_json,
+                    group_idx=group_idx,
+                    metadata={"camera_nr": camera_nr, "source": "precomputed"},
+                )
             continue
 
         base = os.path.splitext(os.path.basename(video_path))[0]
         output_json = os.path.join(output_json_folder, f"{base}_tracking.json")
+        tasks.append(
+            (
+                video_path,
+                output_json,
+                config.get("model_path", None) if "model_path" in config else model_ref,
+                bool(config.get("save_tracking_video", False)),
+                camera_nr,
+            )
+        )
 
-        # Collect a task for the pool. DO NOT create/load the model here.
-        tasks.append((
-            video_path,
-            output_json,
-            # Pass a *model reference* (e.g., a weights path or config),
-            # NOT an in-memory model object.
-            config.get("model_path", None) if "model_path" in config else model_ref,
-            bool(config.get("save_tracking_video", False)),
-            camera_nr,
-        ))
-
-    # If there are tasks to run, execute them in parallel (1 worker per video by default)
+    tracking_errors: List[str] = []
     if tasks:
-        # Default: 1 worker unless explicitly increased (avoid GPU VRAM contention)
         max_workers = int(config.get("num_tracking_workers", 1))
         if max_workers < 1:
             max_workers = 1
 
         logger.info("Launching %d tracking worker(s) for %d video(s)", max_workers, len(tasks))
+        if reporter is not None:
+            reporter.emit(
+                "tracking_started",
+                stage="tracking",
+                group_idx=group_idx,
+                payload={"video_count": len(tasks), "worker_count": max_workers},
+            )
 
-        # Use spawn to be CUDA-safe.
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=max_workers) as pool:
             results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
 
-        # Collect successful outputs; log failures
-        for (output_json, err), (video_path, _, _, _, camera_nr) in zip(results, tasks):
+        for (output_json, err), (_, _, _, _, camera_nr) in zip(results, tasks):
             if err:
                 logger.error("%s", err)
+                tracking_errors.append(err)
                 continue
             if output_json:
                 source_entries.append((output_json, camera_nr))
+                if reporter is not None:
+                    reporter.artifact(
+                        "tracking_json",
+                        output_json,
+                        group_idx=group_idx,
+                        metadata={"camera_nr": camera_nr, "source": "inference"},
+                    )
+
+        if reporter is not None:
+            reporter.emit(
+                "tracking_completed",
+                stage="tracking",
+                group_idx=group_idx,
+                payload={
+                    "success_count": len(source_entries) - precomputed_json_count,
+                    "failure_count": len(tracking_errors),
+                    "precomputed_json_count": precomputed_json_count,
+                },
+            )
+            if tracking_errors:
+                reporter.emit(
+                    "tracking_failed",
+                    stage="tracking",
+                    group_idx=group_idx,
+                    message="One or more tracking jobs failed.",
+                    payload={"error": "; ".join(tracking_errors), "failure_count": len(tracking_errors)},
+                )
+    elif reporter is not None:
+        reporter.emit(
+            "tracking_skipped",
+            stage="tracking",
+            group_idx=group_idx,
+            payload={"precomputed_json_count": precomputed_json_count},
+        )
 
     output_json_paths = [path for path, _camera_nr in source_entries]
     camera_nrs = [camera_nr for _path, camera_nr in source_entries]
@@ -153,7 +208,13 @@ def process_video_group(
     if not output_json_paths:
         raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
 
-    # 2) Render + produce processed JSONs (also draws frames)
+    if reporter is not None:
+        reporter.emit(
+            "processing_started",
+            stage="processing",
+            group_idx=group_idx,
+            payload={"input_json_count": len(output_json_paths)},
+        )
     try:
         processed_json_paths = process_and_save_frames(
             output_json_paths,
@@ -166,13 +227,36 @@ def process_video_group(
     except Exception as e:
         logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
         processed_json_paths = []
+        if reporter is not None:
+            reporter.emit(
+                "processing_failed",
+                stage="processing",
+                group_idx=group_idx,
+                message=f"Frame processing failed for group {group_idx}.",
+                payload={"error": str(e)},
+            )
+
     processed_camera_nrs = [
         camera_nr
         for input_json_path, camera_nr in source_entries
         if input_json_path.replace(".json", "_processed.json") in processed_json_paths
     ]
 
-    # Delete unprocessed JSONs to avoid confusion
+    if reporter is not None:
+        for processed_json_path, camera_nr in zip(processed_json_paths, processed_camera_nrs):
+            reporter.artifact(
+                "processed_json",
+                processed_json_path,
+                group_idx=group_idx,
+                metadata={"camera_nr": camera_nr},
+            )
+        reporter.emit(
+            "processing_completed",
+            stage="processing",
+            group_idx=group_idx,
+            payload={"processed_json_count": len(processed_json_paths)},
+        )
+
     for json_path in output_json_paths:
         try:
             if os.path.exists(json_path) and json_path not in processed_json_paths:
@@ -181,12 +265,18 @@ def process_video_group(
         except Exception as e:
             logger.warning("Failed to delete unprocessed JSON %s: %s", json_path, e)
 
-    # 3) Merge the PROCESSED JSONs so merged output includes centroids & projected_centroids
     merged_json_path = os.path.join(
         output_json_folder, f"group_{group_idx}_merged_processed.json"
     )
     try:
         if processed_json_paths:
+            if reporter is not None:
+                reporter.emit(
+                    "merge_started",
+                    stage="merge",
+                    group_idx=group_idx,
+                    payload={"processed_json_count": len(processed_json_paths)},
+                )
             logger.info(
                 "Merging %d processed JSON(s) -> %s",
                 len(processed_json_paths),
@@ -197,20 +287,61 @@ def process_video_group(
                 merged_json_path,
                 camera_nrs=processed_camera_nrs,
             )
+            if reporter is not None:
+                reporter.artifact("merged_json", merged_json_path, group_idx=group_idx)
+                reporter.emit(
+                    "merge_completed",
+                    stage="merge",
+                    group_idx=group_idx,
+                    payload={"path": merged_json_path},
+                )
         else:
             logger.warning("No processed JSONs to merge for group %d.", group_idx)
     except Exception as e:
         logger.exception("Merging processed JSONs failed for group %d: %s", group_idx, e)
+        if reporter is not None:
+            reporter.emit(
+                "merge_failed",
+                stage="merge",
+                group_idx=group_idx,
+                message=f"Merging processed JSONs failed for group {group_idx}.",
+                payload={"error": str(e), "path": merged_json_path},
+            )
 
-    # 4) Optional: convert all *_processed.json (and merged) to CSV
     if config.get("convert_to_csv", True):
-        # Convert each processed JSON
+        csv_paths: List[str] = []
         for pjson in processed_json_paths:
             if pjson and pjson.endswith("_processed.json") and os.path.exists(pjson):
-                _json_to_csv(pjson)
+                csv_path = _json_to_csv(pjson)
+                if csv_path:
+                    csv_paths.append(csv_path)
+                    if reporter is not None:
+                        reporter.artifact("csv", csv_path, group_idx=group_idx)
 
-        # Convert merged JSON (if exists)
         if merged_json_path and os.path.exists(merged_json_path):
-            _json_to_csv(merged_json_path)
+            csv_path = _json_to_csv(merged_json_path)
+            if csv_path:
+                csv_paths.append(csv_path)
+                if reporter is not None:
+                    reporter.artifact("csv", csv_path, group_idx=group_idx)
+        if reporter is not None:
+            reporter.emit(
+                "csv_export_completed",
+                stage="export",
+                group_idx=group_idx,
+                payload={"csv_count": len(csv_paths)},
+            )
+
+    if reporter is not None:
+        reporter.emit(
+            "group_completed",
+            stage="group",
+            group_idx=group_idx,
+            payload={
+                "tracking_json_count": len(output_json_paths),
+                "processed_json_count": len(processed_json_paths),
+                "merged_json_path": merged_json_path,
+            },
+        )
 
     return output_json_paths, camera_nrs, merged_json_path
