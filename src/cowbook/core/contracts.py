@@ -139,6 +139,8 @@ DEFAULT_MASKS = {
 
 @dataclass(slots=True)
 class PipelineConfig:
+    """Typed runtime configuration for a cowbook pipeline run."""
+
     model_path: str = "models/best.pt"
     fps: int = 6
     save_tracking_video: bool = False

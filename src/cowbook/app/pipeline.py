@@ -18,6 +18,7 @@ from cowbook.execution import (
     JobCancelledError,
     JobObserver,
     JobReporter,
+    JobRun,
     new_job_id,
 )
 
@@ -26,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class PipelineRunner:
+    """Synchronous orchestration entrypoint for one pipeline run.
+
+    The runner loads config, prepares output folders, optionally applies masking,
+    processes all configured groups, renders the projection video, and emits
+    structured execution events through the attached observer.
+    """
+
     config_service: ConfigService = field(default_factory=ConfigService)
     directory_service: DirectoryService = field(default_factory=DirectoryService)
     masking_service: MaskingService = field(default_factory=MaskingService)
@@ -40,7 +48,19 @@ class PipelineRunner:
         observer: JobObserver | None = None,
         job_id: str | None = None,
         cancellation_token: CancellationToken | None = None,
-    ):
+    ) -> JobRun | None:
+        """Execute one pipeline run from a config file.
+
+        Args:
+            config_path: Path to the JSON configuration file.
+            overrides: Optional runtime overrides applied after config load.
+            observer: Optional observer for structured job events.
+            job_id: Optional externally supplied job identifier.
+            cancellation_token: Optional cooperative cancellation token.
+
+        Returns:
+            A final :class:`cowbook.execution.models.JobRun` snapshot when available.
+        """
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
