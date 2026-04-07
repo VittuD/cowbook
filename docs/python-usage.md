@@ -1,6 +1,6 @@
 # Python Usage
 
-The stable public package surface is `cowbook` itself, plus `cowbook.runtime` for callers that want a dedicated module path. In normal code, prefer importing from the package root:
+The stable public package surface is `cowbook` itself, plus [`cowbook.runtime`](reference/runtime.md#cowbook.runtime) for callers that want a dedicated module path. In normal code, prefer importing from the package root:
 
 ```python
 from cowbook import load_pipeline_config, run_pipeline

@@ -33,11 +33,19 @@ cowbook.execution   cowbook.workflows
          run artifacts under var/
 ```
 
-`cowbook.runtime` is the public entrypoint. `cowbook.app` coordinates a run, `cowbook.workflows` handles group-level flow, `cowbook.vision` owns tracking and projection, `cowbook.io` owns file-based inputs and outputs, `cowbook.core` provides contracts and pure transforms, and `cowbook.execution` carries structured run state and events.
+The package map is meant to be read top-down: [`cowbook.runtime`](reference/runtime.md#cowbook.runtime) is the public entrypoint, [`cowbook.app`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner) drives a run, [`cowbook.workflows`](pipeline.md) connects the group-level stages, and the lower layers provide the execution, IO, vision, and contract machinery those stages depend on.
 
 ## Internal Layout
 
-The internal package layout follows responsibilities rather than scripts: [`cowbook.runtime`](package-boundaries.md) is the public runtime surface, `cowbook.app` contains orchestration entrypoints, [`cowbook.execution`](job-execution.md) handles jobs and progress, `cowbook.core` holds typed contracts and transforms, `cowbook.io` handles file-based IO, `cowbook.vision` contains the vision-specific code, and `cowbook.workflows` ties those parts together at the group level.
+The internal package layout follows responsibilities rather than scripts:
+
+- [`cowbook.runtime`](reference/runtime.md#cowbook.runtime): public package surface and stable imports
+- [`cowbook.app`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner): synchronous orchestration centered on [`PipelineRunner`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner)
+- [`cowbook.execution`](reference/execution.md): structured run state, observers, and [execution reference](reference/execution.md)
+- [`cowbook.core`](reference/runtime.md#cowbook.core.contracts.PipelineConfig): typed contracts, including [`PipelineConfig`](reference/runtime.md#cowbook.core.contracts.PipelineConfig), plus shared transforms
+- `cowbook.io`: [config loading](configuration.md), file-based inputs, and [runtime artifacts](runtime-artifacts.md)
+- `cowbook.vision`: tracking, [projection](calibration.md), and rendering
+- `cowbook.workflows`: [group-level pipeline flow](pipeline.md)
 
 ## Design Rule
 
