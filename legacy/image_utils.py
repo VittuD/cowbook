@@ -507,11 +507,12 @@ def groundProjectPoint(camera_nr, mtx, dist, points):
         s = (z + tempMat2[2, 0]) / tempMat[2, 0]
         wcPoint = np.matmul(iRot, (np.matmul(s * iCam, uvPoint) - tvecs))
 
+        wc_z = float(np.asarray(wcPoint).reshape(-1)[2])
         # wcPoint[2] may differ from z by tiny numerical error; allow small tolerance
-        if abs(float(wcPoint[2] - z)) > 1e-4:
+        if abs(wc_z - z) > 1e-4:
             # optional: log or warn if desired
             pass
-        wcPoint[2] = z
+        wcPoint[2, 0] = z
 
         real_p = wcPoint.reshape(-1).astype(np.int32)
 
@@ -615,9 +616,10 @@ def testGroundProjectPoint(img, mtx, dist, top_view_points, indexes, z=180.0):
         s = (z + tempMat2[2, 0]) / tempMat[2, 0]
         wcPoint = np.matmul(iRot, (np.matmul(s * iCam, uvPoint) - tvecs))
 
+        wc_z = float(np.asarray(wcPoint).reshape(-1)[2])
         # wcPoint[2] will not be exactly equal to z, but very close to it
-        assert int(abs(wcPoint[2] - z) * (10**8)) == 0
-        wcPoint[2] = z
+        assert int(abs(wc_z - z) * (10**8)) == 0
+        wcPoint[2, 0] = z
 
         real_pts.append(wcPoint.reshape(-1).astype(np.int32))
 
