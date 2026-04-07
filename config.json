@@ -1,26 +1,26 @@
 {
   "model_path": "models/yolov11_best.pt",
   "calibration_file": "legacy/calibration_matrix.json",
-  
-  "mask_videos": true,
-  "masked_video_folder": "masked_videos/demo_videos_masking/",
+
+  "mask_videos": false,
+  "masked_video_folder": "masked_videos/vanzetti_1hr/",
   "num_mask_workers": 4,
   "mask_strict_half_rule": true,
 
-  "output_image_folder": "output_frames/demo_videos_masking/",
-  "output_video_folder": "output_videos/demo_videos_masking/",
-  "output_json_folder": "output_json/demo_videos_masking/",
+  "output_image_folder": "output_frames/vanzetti_1hr/",
+  "output_video_folder": "output_videos/vanzetti_1hr/",
+  "output_json_folder": "output_json/vanzetti_1hr/",
   "output_video_filename": "combined_projection.mp4",
   "output_image_format": "jpg",
 
-  "save_tracking_video": true,
-  "clean_frames_after_video": true,
+  "save_tracking_video": false,
   "create_projection_video": true,
+  "clean_frames_after_video": true,
   "convert_to_csv": true,
   "fps": 6,
 
   "num_plot_workers": 8,
-  "num_tracking_workers": 4,
+  "num_tracking_workers": 1,
 
   "masks": {
     "Ch1": "mask/combined_mask_ch1.png",
@@ -38,10 +38,10 @@
 
   "video_groups": [
     [
-      { "path": "videos/demo_videos_masking/Ch1_60.mp4", "camera_nr": 1 },
-      { "path": "videos/demo_videos_masking/Ch4_60.mp4", "camera_nr": 4 },
-      { "path": "videos/demo_videos_masking/Ch6_60.mp4", "camera_nr": 6 },
-      { "path": "videos/demo_videos_masking/Ch8_60.mp4", "camera_nr": 8 }
+      { "path": "masked_videos/vanzetti_1hr/Ch1_25-11-2025_09-35-00_25-11-2025_10-35-00_S1_1h_h265_cq26_4d0d5ea0.mp4", "camera_nr": 1 },
+      { "path": "masked_videos/vanzetti_1hr/Ch4_25-11-2025_09-35-00_25-11-2025_10-35-00_S1_1h_h265_cq26_f95c156a.mp4", "camera_nr": 4 },
+      { "path": "masked_videos/vanzetti_1hr/Ch6_25-11-2025_09-35-00_25-11-2025_10-35-00_S1_1h_h265_cq26_ab5cdbdf.mp4", "camera_nr": 6 },
+      { "path": "masked_videos/vanzetti_1hr/Ch8_25-11-2025_09-35-00_25-11-2025_10-35-00_S1_1h_h265_cq26_8584b963.mp4", "camera_nr": 8 }
     ]
   ]
 }

@@ -24,3 +24,6 @@ output_videos/
 videos/
 VideoVanzetti04042024/*
 VideoVanzetti23042024/json/*
+runs/*
+masked_videos/*
+vanzetti_1hr/*

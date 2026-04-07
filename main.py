@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 
 def main(
     config_path: str,
-    save_tracking_video_flag: bool | None = None,
-    clean_frames_after_video_flag: bool | None = None,
 ) -> None:
     # Logging setup
     logging.basicConfig(
@@ -28,13 +26,8 @@ def main(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    # Load configuration (with optional CLI overrides applied inside the loader)
-    overrides = (
-        {"save_tracking_video": bool(save_tracking_video_flag)}
-        if save_tracking_video_flag is not None
-        else None
-    )
-    config = load_config(config_path, overrides=overrides)
+    # Load configuration
+    config = load_config(config_path)
     if not config:
         logger.error("Failed to load config from %s", config_path)
         return
@@ -94,26 +87,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--config", dest="config_opt", type=str, help="Path to the configuration file")
 
-    # Mutually exclusive override for saving YOLO tracking videos
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument(
-        "--save-tracking-video",
-        dest="save_tracking_video_flag",
-        action="store_true",
-        help="Force saving YOLO annotated tracking videos",
-    )
-    group.add_argument(
-        "--no-save-tracking-video",
-        dest="save_tracking_video_flag",
-        action="store_false",
-        help="Disable saving YOLO annotated tracking videos",
-    )
-    parser.set_defaults(save_tracking_video_flag=None)
-
     args = parser.parse_args()
     config_path = args.config_opt or args.config or "config.json"
     main(
         config_path,
-        save_tracking_video_flag=args.save_tracking_video_flag,
-        clean_frames_after_video_flag=args.clean_frames_after_video_flag,
     )

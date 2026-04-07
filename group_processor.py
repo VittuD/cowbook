@@ -136,8 +136,8 @@ def process_video_group(
     if tasks:
         # Default: 1 worker unless explicitly increased (avoid GPU VRAM contention)
         max_workers = int(config.get("num_tracking_workers", 1))
-         if max_workers < 1:
-             max_workers = 1
+        if max_workers < 1:
+            max_workers = 1
 
         logger.info("Launching %d tracking worker(s) for %d video(s)", max_workers, len(tasks))
 

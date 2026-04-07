@@ -28,7 +28,14 @@ def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
     cap.release()
     
     # Run YOLO tracking on the video
-    results = model.track(source=video_path, stream=True, save=save)
+    results = model.track(
+        source=video_path,
+        stream=True,
+        save=save,
+        conf=0.45,      # ↑ fewer false positives
+        iou=0.5,        # NMS
+        tracker="trackers/cows_botsort.yaml",
+    )
     json_data = {"frames": []}  # Initialize the JSON data structure
 
     # Process each frame and collect tracking data

@@ -1,0 +1,24 @@
+# BoT-SORT tuned for static barn cameras (reduce flicker + reduce false tracks)
+
+tracker_type: botsort
+
+# Raise thresholds to reduce short-lived false tracks and stabilize associations
+track_high_thresh: 0.45     # was 0.25
+track_low_thresh: 0.15      # was 0.10
+new_track_thresh: 0.60      # was 0.25
+
+# Keep tracks alive longer through brief occlusions/conf dips (reduces flicker)
+track_buffer: 90            # was 30
+
+# Matching behavior
+match_thresh: 0.85          # was 0.80 (slightly stricter to reduce bad matches)
+fuse_score: True
+
+# For static cameras, GMC can sometimes hurt; start with 'none' (then test sparseOptFlow if needed)
+gmc_method: none            # was sparseOptFlow
+
+# ReID-related (kept for completeness; unused when with_reid=False)
+proximity_thresh: 0.6       # was 0.5 (stricter gating if ReID enabled later)
+appearance_thresh: 0.8
+with_reid: False
+model: auto
