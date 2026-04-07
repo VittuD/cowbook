@@ -1,0 +1,41 @@
+site_name: Cowbook
+site_description: Package and CLI documentation for the cowbook tracking engine
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_root_heading: true
+            show_source: false
+            show_signature_annotations: true
+            docstring_style: google
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+
+not_in_nav: |
+  phases/**
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - CLI Usage: cli.md
+  - Pipeline: pipeline.md
+  - Python Usage: python-usage.md
+  - Configuration: configuration.md
+  - Runtime Artifacts: runtime-artifacts.md
+  - Calibration: calibration.md
+  - Job Execution: job-execution.md
+  - References and Attribution: references.md
+  - Architecture:
+      - Overview: architecture.md
+      - Package Boundaries: package-boundaries.md
+  - Reference:
+      - Runtime Interface: reference/runtime.md
+      - Execution Models: reference/execution.md

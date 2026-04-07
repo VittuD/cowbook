@@ -1,0 +1,14 @@
+# Runtime Artifacts
+
+By default, each run lives under:
+
+```text
+var/runs/<run_name>/
+├── frames/
+├── json/
+└── videos/
+```
+
+Within that tree, you will usually see raw tracking JSON, [processed JSON](pipeline.md), merged group-level JSON, CSV exports, rendered frame images, and the final projection video. Masked-video preprocessing uses a separate cache under `var/cache/masked_videos`.
+
+This directory layout defines the run output structure. Runs execute from explicit config and produce explicit artifacts under this tree.

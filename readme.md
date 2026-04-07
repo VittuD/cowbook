@@ -1,20 +1,46 @@
 # Cowbook
 
-Cowbook is a packaged Python pipeline for multi-camera cow tracking and ground-plane projection in a fixed barn setup.
+Cowbook is a packaged Python pipeline for multi-camera cow tracking and [ground-plane projection](docs/calibration.md) in a fixed barn setup.
 
-It can:
-- run YOLO tracking on one or more camera videos
-- convert detections into per-frame centroids
-- project those centroids into barn coordinates using a calibrated camera model
-- merge camera outputs at group level
-- render a combined top-down sequence
-- export JSON, CSV, and final MP4 artifacts
+It runs a batch [pipeline](docs/pipeline.md): YOLO-based tracking on one or more camera streams, centroid extraction, camera-space to barn-space projection, [group-level merge](docs/pipeline.md), top-down rendering, and export to JSON, CSV, and MP4 artifacts.
 
-The current supported entrypoint is:
+Supported entrypoint:
 
 ```bash
 python -m cowbook
 ```
+
+For non-CLI embedding, `cowbook` also exposes a small stable Python [runtime surface](docs/package-boundaries.md):
+
+```python
+from cowbook import PipelineRunner, load_pipeline_config, run_pipeline
+```
+
+## Documentation
+
+The package documentation is organized as a MkDocs site under [docs](/home/davide/Desktop/cowbook/docs).
+
+Install docs tooling only:
+
+```bash
+pip install -e ".[docs]"
+```
+
+Serve docs locally:
+
+```bash
+mkdocs serve
+```
+
+Build the static docs site:
+
+```bash
+mkdocs build
+```
+
+Stable documentation targets are the CLI entrypoint, the public package [runtime surface](docs/package-boundaries.md) in [runtime.py](/home/davide/Desktop/cowbook/src/cowbook/runtime.py), and the architecture and package-boundary guidance for the package itself.
+
+Deep internal modules are documented only when they become stable extension points.
 
 ## Current Layout
 
@@ -42,12 +68,7 @@ python -m cowbook
 └── var/
 ```
 
-Directory intent:
-- `assets/`: persistent non-code assets such as calibration, masks, tracker config, and barn background
-- `configs/`: example run configs
-- `sample_data/`: local sample inputs for smoke/full runs
-- `src/cowbook/`: packaged application code
-- `var/`: runtime outputs and cache
+Directory intent is simple: `assets/` stores persistent non-code project assets such as calibration, masks, tracker config, and the barn background; `configs/` stores example run configs; `sample_data/` stores local inputs for smoke and full runs; `src/cowbook/` contains the packaged code; and `var/` is reserved for runtime outputs and cache data.
 
 ## Install
 
@@ -59,12 +80,20 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-Dev install:
+Development checks only:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .[dev]
+```
+
+Full contributor install:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev,docs]"
 ```
 
 The repo expects a working PyTorch environment that is compatible with `ultralytics`. CUDA setup is external to this project.
@@ -92,22 +121,33 @@ python -m cowbook --config configs/full.cpu.json --mask-videos
 python -m cowbook --config configs/full.cpu.json --no-clean-frames-after-video
 ```
 
-Supported CLI overrides:
-- `--fps`
-- `--output-video-filename`
-- `--output-image-format`
-- `--num-plot-workers`
-- `--num-tracking-workers`
-- `--create-projection-video` / `--no-create-projection-video`
-- `--clean-frames-after-video` / `--no-clean-frames-after-video`
-- `--mask-videos` / `--no-mask-videos`
+Supported overrides are intentionally small: frame rate, output filename, output image format, plot workers, tracking workers, projection-video creation, frame cleanup, and whether video masking runs before inference.
+
+## Python Embedding
+
+`cowbook` is usable in two ways: as a standalone CLI/engine, and as a Python package imported directly.
+
+The stable import surface is the package root or [runtime.py](/home/davide/Desktop/cowbook/src/cowbook/runtime.py), not deep internal modules.
+
+Example:
+
+```python
+from cowbook import load_pipeline_config, run_pipeline
+
+config = load_pipeline_config("configs/smoke.json")
+result = run_pipeline("configs/smoke.json")
+```
+
+Package-facing exports are `PipelineRunner`, `PipelineConfig`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, and `run_pipeline()`.
 
 ## Docker
 
 One Docker image is included:
+
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
 
 The image:
+
 - uses `ultralytics/ultralytics:8.4.34` as the base
 - copies the repo into `/app`
 - installs the package in editable mode
@@ -148,27 +188,19 @@ docker run --rm -it \
 ```
 
 Notes:
+
 - the host needs a working NVIDIA driver for GPU runs
 - Docker needs NVIDIA Container Toolkit support for `--gpus all`
 - the same image can run on CPU-only hosts or on NVIDIA GPU hosts
 - pinning the Ultralytics base tag keeps the runtime reproducible
 
-If you want to override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
+To override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
 
 ## Config Model
 
 The runtime contract is a JSON config plus a small CLI override surface.
 
-Important fields:
-- `model_path`: YOLO weights path
-- `calibration_file`: calibration bundle JSON, default `assets/calibration/camera_system.json`
-- `video_groups`: list of groups; each group contains 1 to 4 inputs with unique `camera_nr`
-- `runtime_root`: base runtime folder, default `var`
-- `run_name`: run-scoped output namespace, default `default`
-- `mask_videos`: whether to preprocess videos through static masks before inference
-- `create_projection_video`: whether to assemble the final MP4
-- `clean_frames_after_video`: whether to delete rendered frames after video assembly
-- `convert_to_csv`: whether to export CSV beside processed and merged JSON
+Core fields are `model_path`, `calibration_file`, and `video_groups`, because they define the detector, the camera geometry, and the actual inputs. Runtime layout, [masking](docs/cli.md), CSV export, and cleanup settings control execution and retention behavior.
 
 Minimal example:
 
@@ -194,6 +226,7 @@ Minimal example:
 ```
 
 Notes:
+
 - input paths may be videos or precomputed tracking JSON files
 - `num_tracking_workers` defaults to `1` intentionally to avoid GPU contention
 - masks default to `assets/masks/*.png`
@@ -211,6 +244,7 @@ var/runs/<run_name>/
 ```
 
 Typical artifacts:
+
 - `var/runs/<run_name>/json/<input>_tracking.json`
 - `var/runs/<run_name>/json/<input>_tracking_processed.json`
 - `var/runs/<run_name>/json/group_<n>_merged_processed.json`
@@ -238,11 +272,13 @@ If one camera in a group fails, the group continues with surviving cameras inste
 ## Data Contracts
 
 High-level JSON flow:
+
 - raw tracking JSON: `frames`, `frame_id`, `detections.xyxy`, `labels`
-- processed JSON: adds `centroids` and `projected_centroids`
+- processed JSON: adds [`centroids`](docs/pipeline.md) and [`projected_centroids`](docs/pipeline.md)
 - merged JSON: group-level merged processed output
 
 Merged identity semantics:
+
 - `camera_nr`: source camera
 - `local_track_id`: camera-local tracking identity
 - `global_id`: reserved for future cross-camera identity association and currently `null`
@@ -251,9 +287,10 @@ Cowbook does not currently perform true barn-wide identity association. Merged o
 
 ## Observability
 
-The pipeline now emits structured execution events rather than baking status directly into a specific interface.
+The pipeline now emits [structured execution events](docs/job-execution.md) rather than baking status directly into a specific interface.
 
 Current shape:
+
 - job lifecycle events
 - stage events such as config, masking, tracking, processing, merge, export, and video
 - artifact events for generated JSON, CSV, directories, and videos
@@ -261,13 +298,15 @@ Current shape:
 This is implemented under [src/cowbook/execution](/home/davide/Desktop/cowbook/src/cowbook/execution).
 
 Design intent:
+
 - the pipeline publishes structured events
 - the CLI consumes them as logs today
-- a future FastAPI/background-job layer can attach its own observer without changing the pipeline core
+- another caller can attach its own observer without changing the pipeline core
 
 ## Assets
 
 Important asset locations:
+
 - calibration: [assets/calibration](/home/davide/Desktop/cowbook/assets/calibration)
 - masks: [assets/masks](/home/davide/Desktop/cowbook/assets/masks)
 - tracker config: [assets/trackers/cows_botsort.yaml](/home/davide/Desktop/cowbook/assets/trackers/cows_botsort.yaml)
@@ -278,6 +317,7 @@ If `assets/images/barn.png` is missing, frame rendering falls back to a blank ba
 ## Example Configs
 
 Included examples:
+
 - [config.json](/home/davide/Desktop/cowbook/config.json): default local run config
 - [configs/smoke.json](/home/davide/Desktop/cowbook/configs/smoke.json): small CPU smoke run
 - [configs/smoke.gpu.json](/home/davide/Desktop/cowbook/configs/smoke.gpu.json): small GPU smoke run

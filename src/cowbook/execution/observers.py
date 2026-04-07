@@ -7,29 +7,53 @@ from cowbook.execution.models import JobArtifact, JobEvent, JobRun
 
 
 class JobObserver(Protocol):
+    """Protocol for sinks that consume execution events.
+
+    Implementations can log events, accumulate them into a run snapshot, or
+    forward them to another system. The pipeline only depends on this protocol,
+    not on any concrete storage or transport.
+    """
+
     def emit(self, event: JobEvent) -> None: ...
 
 
 @dataclass(slots=True)
 class NullObserver:
+    """Observer that ignores every event."""
+
     def emit(self, event: JobEvent) -> None:
+        """Discard ``event``."""
+
         return None
 
 
 @dataclass(slots=True)
 class CompositeObserver:
+    """Fan out each event to multiple observers."""
+
     observers: list[JobObserver] = field(default_factory=list)
 
     def emit(self, event: JobEvent) -> None:
+        """Forward ``event`` to every configured observer in order."""
+
         for observer in self.observers:
             observer.emit(event)
 
 
 @dataclass(slots=True)
 class InMemoryJobStore:
+    """In-memory run snapshot store built from the event stream.
+
+    This store is useful in tests, local tools, or lightweight embedding
+    scenarios where callers want the latest run state without maintaining their
+    own event reducer.
+    """
+
     jobs: dict[str, JobRun] = field(default_factory=dict)
 
     def emit(self, event: JobEvent) -> None:
+        """Update the stored :class:`JobRun` for ``event.job_id``."""
+
         payload = dict(event.payload)
         config_path = str(payload.get("config_path", ""))
         run = self.jobs.setdefault(
@@ -74,11 +98,20 @@ class InMemoryJobStore:
         run.events.append(event)
 
     def get(self, job_id: str) -> JobRun | None:
+        """Return the latest stored run snapshot for ``job_id``."""
+
         return self.jobs.get(job_id)
 
 
 @dataclass(slots=True)
 class JobReporter:
+    """Convenience emitter bound to one run.
+
+    ``JobReporter`` reduces boilerplate in the pipeline by attaching the job id
+    and config path to every event. Callers normally use :meth:`emit` for stage
+    transitions and :meth:`artifact` for produced files.
+    """
+
     job_id: str
     config_path: str
     observer: JobObserver = field(default_factory=NullObserver)
@@ -93,6 +126,8 @@ class JobReporter:
         group_idx: int | None = None,
         payload: dict[str, Any] | None = None,
     ) -> None:
+        """Emit one structured execution event for the bound run."""
+
         event_payload = {"config_path": self.config_path}
         if payload:
             event_payload.update(payload)
@@ -116,6 +151,8 @@ class JobReporter:
         group_idx: int | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Emit an ``artifact_created`` event for a produced file."""
+
         payload = {"kind": kind, "path": path}
         if metadata:
             payload.update(metadata)
