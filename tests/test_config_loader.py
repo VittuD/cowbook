@@ -33,7 +33,7 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
     assert config["output_video_folder"] == "var/runs/default/videos"
     assert config["output_json_folder"] == "var/runs/default/json"
     assert config["masked_video_folder"] == "var/cache/masked_videos"
-    assert config["masks"]["Ch1"] == "test_img/combined_mask_ch1.png"
+    assert config["masks"]["Ch1"] == "assets/masks/combined_mask_ch1.png"
 
 
 def test_load_config_applies_explicit_overrides(tmp_path):

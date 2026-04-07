@@ -1,0 +1,24 @@
+{
+  "model_path": "models/yolov11_best.pt",
+  "calibration_file": "assets/calibration/calibration_matrix.json",
+  "mask_videos": false,
+  "runtime_root": "var",
+  "run_name": "smoke_test_gpu",
+  "output_video_filename": "smoke_projection.mp4",
+  "output_image_format": "jpg",
+  "save_tracking_video": false,
+  "create_projection_video": true,
+  "clean_frames_after_video": false,
+  "convert_to_csv": true,
+  "fps": 6,
+  "num_plot_workers": 0,
+  "num_tracking_workers": 1,
+  "video_groups": [
+    [
+      {
+        "path": "sample_data/videos/Ch1_60.mp4",
+        "camera_nr": 1
+      }
+    ]
+  ]
+}

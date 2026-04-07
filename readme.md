@@ -33,39 +33,23 @@ Detect objects with Ultralytics YOLO (v8 → v11), undistort image coordinates w
 
 ## Directory Structure
 
-```
-├── config_loader.py
+``` 
+├── assets/
+│   ├── calibration/
+│   ├── images/
+│   ├── masks/
+│   └── trackers/
 ├── config.json
-├── csv_converter.py
-├── directory_manager.py
-├── frame_processor.py
-├── group_processor.py
-├── json_merger.py
-├── legacy/
-│   ├── calibration_matrix.json
-│   ├── image_utils.py
-│   ├── points_data.py
-│   └── real_world_points.json
-├── main.py
-├── mask/
-│   ├── combined_mask_ch1.png
-│   ├── combined_mask_ch4.png
-│   ├── combined_mask_ch6.png
-│   └── combined_mask_ch8.png
 ├── models/
-│   ├── yolov8_best.pt
-│   └── yolov11_best.pt
-├── output_frames/
-├── output_json/
-├── output_videos/
-├── preprocess_video.py
-├── processing.py
-├── tracking.py
-├── video_processor.py
-└── videos/
+├── sample_data/
+│   └── videos/
+├── scripts/
+├── src/cowbook/
+├── tests/
+└── var/
 ```
 
-`legacy/barn.png` (optional): background image used when drawing projected points. If missing, a blank canvas is used.
+`assets/images/barn.png` (optional): background image used when drawing projected points. If missing, a blank canvas is used.
 
 ---
 
@@ -76,16 +60,16 @@ Example:
 ```
 {
   "model_path": "models/yolov11_best.pt",
-  "calibration_file": "legacy/calibration_matrix.json",
+  "calibration_file": "assets/calibration/calibration_matrix.json",
 
   "mask_videos": true,
-  "masked_video_folder": "masked_videos/demo_videos_masking/",
+  "masked_video_folder": "var/cache/masked_videos/demo_videos_masking/",
   "num_mask_workers": 4,
   "mask_strict_half_rule": true,
 
-  "output_image_folder": "output_frames/demo_videos_masking/",
-  "output_video_folder": "output_videos/demo_videos_masking/",
-  "output_json_folder": "output_json/demo_videos_masking/",
+  "output_image_folder": "var/runs/demo_videos_masking/frames/",
+  "output_video_folder": "var/runs/demo_videos_masking/videos/",
+  "output_json_folder": "var/runs/demo_videos_masking/json/",
   "output_video_filename": "combined_projection.mp4",
   "output_image_format": "jpg",
 
@@ -99,10 +83,10 @@ Example:
   "num_tracking_workers": 1,                // NEW default: 1 to avoid GPU OOM
 
   "masks": {
-    "Ch1": "mask/combined_mask_ch1.png",
-    "Ch4": "mask/combined_mask_ch4.png",
-    "Ch6": "mask/combined_mask_ch6.png",
-    "Ch8": "mask/combined_mask_ch8.png"
+    "Ch1": "assets/masks/combined_mask_ch1.png",
+    "Ch4": "assets/masks/combined_mask_ch4.png",
+    "Ch6": "assets/masks/combined_mask_ch6.png",
+    "Ch8": "assets/masks/combined_mask_ch8.png"
   },
 
   "camera_to_mask_map": {
@@ -114,10 +98,10 @@ Example:
 
   "video_groups": [
     [
-      { "path": "videos/demo_videos_masking/Ch1_60.mp4", "camera_nr": 1 },
-      { "path": "videos/demo_videos_masking/Ch4_60.mp4", "camera_nr": 4 },
-      { "path": "videos/demo_videos_masking/Ch6_60.mp4", "camera_nr": 6 },
-      { "path": "videos/demo_videos_masking/Ch8_60.mp4", "camera_nr": 8 }
+      { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 },
+      { "path": "sample_data/videos/Ch4_60.mp4", "camera_nr": 4 },
+      { "path": "sample_data/videos/Ch6_60.mp4", "camera_nr": 6 },
+      { "path": "sample_data/videos/Ch8_60.mp4", "camera_nr": 8 }
     ]
   ]
 }
@@ -165,40 +149,23 @@ python -m cowbook --config config.my.json
 * `var/runs/<run_name>/videos/*.mp4` — final rendered videos for the run
 * `var/cache/masked_videos/*` — reusable masked-video cache
 
-> By default, `output_frames` are **deleted** after the final video is created. Use `--no-clean-frames` (or set `clean_frames_after_video: false`) to keep them.
+> By default, rendered frames are deleted after the final video is created. Use `--no-clean-frames-after-video` (or set `clean_frames_after_video: false`) to keep them.
 
 ---
 
 ## CSV conversion & JSON merging
 
-**Merge processed JSONs (per group):**
+These are part of the packaged pipeline now rather than standalone repo-root scripts:
 
-```bash
-python json_merger.py --inputs output_json/cam1_processed.json output_json/cam4_processed.json \
-                      --output output_json/group_1_merged_processed.json
-```
-
-**Convert JSON → CSV:**
-
-Single file:
-
-```bash
-python csv_converter.py --input output_json/group_1_merged_processed.json --output group1.csv
-```
-
-Multiple files → one CSV, with a `source` column:
-
-```bash
-python csv_converter.py \
-  --inputs output_json/group_1_merged_processed.json output_json/group_2_merged_processed.json \
-  --output all_groups.csv --source-col source
-```
+* Per-group merge happens automatically after processed JSON creation.
+* CSV export happens automatically when `convert_to_csv: true`.
+* If you need custom post-processing, import the helpers from [src/cowbook/io/json_merger.py](/home/davide/Desktop/cowbook/src/cowbook/io/json_merger.py) and [src/cowbook/io/csv_converter.py](/home/davide/Desktop/cowbook/src/cowbook/io/csv_converter.py).
 
 ---
 
 ## How it works (pipeline)
 
-1. Load config, ensure output folders exist (and `output_frames` is cleared).
+1. Load config, ensure output folders exist (and `var/runs/<run_name>/frames` is cleared).
 2. For each `video_group`:
    * Run YOLO tracking for each video (unless the input is already a JSON).
    * Undistort detections using camera intrinsics & distortion coefficients.
@@ -212,7 +179,7 @@ python csv_converter.py \
 
 ## Masking (optional)
 
-If `mask_videos=true`, videos are preprocessed into `masked_videos/...` with static masks:
+If `mask_videos=true`, videos are preprocessed into `var/cache/masked_videos/...` with static masks:
 
 * If mask resolution equals video resolution → apply directly.
 * If video is exactly half of mask resolution → mask is NEAREST-resized and applied.
@@ -225,19 +192,19 @@ Channel is chosen via `camera_to_mask_map` or `ChX` in the filename.
 
 * **Torch / CUDA not found:** install a compatible PyTorch build for your system.
 * **`calibration_matrix.json` missing:** update `calibration_file` path or provide the file.
-* **No images in `output_frames`:** ensure `video_groups` points to existing videos/JSONs.
+* **No images in `var/runs/<run_name>/frames`:** ensure `video_groups` points to existing videos/JSONs.
 * **YOLO video outputs in `runs/track/...`:** use `--no-save-tracking-video` or set `save_tracking_video: false` in config.
-* **Frames disappeared:** default cleanup is ON → use `--no-clean-frames`.
+* **Frames disappeared:** default cleanup is ON → use `--no-clean-frames-after-video`.
 
 ---
 
 ## Warnings & gotchas
 
-* **Calibration & resolution coupling:** projection assumes your camera intrinsics and frame size match the calibration. In `legacy/image_utils.py`, constants are tuned for `2688×1520`. Mismatches will degrade or break projection.
+* **Calibration & resolution coupling:** projection assumes your camera intrinsics and frame size match the calibration. In `src/cowbook/vision/legacy_impl/image_utils.py`, constants are tuned for `2688×1520`. Mismatches will degrade or break projection.
 * **Frame alignment:** merging uses integer `frame_id` only. Ensure videos are time-aligned (fps & offsets), or projections across cameras won’t represent the same moment.
 * **Frame numbering/padding:** rendered filenames pad based on total frames processed, not on max `frame_id`. If your `frame_id`s are sparse, the zero-padding may not match the highest `frame_id` magnitude (this is cosmetic).
-* **Barn background:** if `legacy/barn.png` is missing, a blank canvas is used.
-* **OpenCV headless vs GUI:** repo uses `opencv-python-headless`. Some `legacy` helpers (`cv.imshow`) are present but not used in the pipeline; avoid calling them in headless environments.
+* **Barn background:** if `assets/images/barn.png` is missing, a blank canvas is used.
+* **OpenCV headless vs GUI:** repo uses `opencv-python-headless`. Some legacy helpers (`cv.imshow`) are present but not used in the pipeline; avoid calling them in headless environments.
 * **GPU VRAM & parallelism:** `num_tracking_workers` defaults to 1 to avoid OOM. Increase only if your GPU can handle multiple concurrent models.
 
 ---

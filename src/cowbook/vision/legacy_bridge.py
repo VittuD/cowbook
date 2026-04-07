@@ -4,19 +4,19 @@ from pathlib import Path
 from typing import Iterable
 
 import cv2
-import legacy.image_utils as legacy_utils
 import numpy as np
 from numpy.typing import NDArray
 
-from cowbook.core.runtime import repo_root
+from cowbook.core.runtime import assets_root
+from cowbook.vision.legacy_impl import image_utils as legacy_utils
 
 
 def default_calibration_file() -> str:
-    return str(repo_root() / "legacy" / "calibration_matrix.json")
+    return str(assets_root() / "calibration" / "calibration_matrix.json")
 
 
 def default_barn_image_path() -> str:
-    return str(repo_root() / "legacy" / "barn.png")
+    return str(assets_root() / "images" / "barn.png")
 
 
 def load_camera_model(calibration_file: str | None = None) -> tuple[NDArray[np.float64], NDArray[np.float64]]:

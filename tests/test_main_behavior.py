@@ -38,7 +38,7 @@ def _write_tiny_video(path: Path, frames: int = 3) -> None:
 def _build_json_smoke_config(tmp_path: Path, input_json: Path, clean_frames: bool) -> Path:
     config = {
         "model_path": "models/yolov11_best.pt",
-        "calibration_file": "legacy/calibration_matrix.json",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
         "mask_videos": False,
         "output_image_folder": str(tmp_path / "frames"),
         "output_video_folder": str(tmp_path / "videos"),
@@ -110,7 +110,7 @@ def test_main_video_input_pipeline_works_with_stubbed_tracking(fixtures_dir: Pat
 
     config = {
         "model_path": "models/yolov11_best.pt",
-        "calibration_file": "legacy/calibration_matrix.json",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
         "mask_videos": False,
         "output_image_folder": str(tmp_path / "frames"),
         "output_video_folder": str(tmp_path / "videos"),

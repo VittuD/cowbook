@@ -1,0 +1,24 @@
+{
+  "model_path": "models/yolov11_best.pt",
+  "calibration_file": "assets/calibration/calibration_matrix.json",
+  "video_groups": [
+    [
+      { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 },
+      { "path": "sample_data/videos/Ch4_60.mp4", "camera_nr": 4 },
+      { "path": "sample_data/videos/Ch6_60.mp4", "camera_nr": 6 },
+      { "path": "sample_data/videos/Ch8_60.mp4", "camera_nr": 8 }
+    ]
+  ],
+  "runtime_root": "var",
+  "run_name": "full_cpu",
+  "fps": 6,
+  "mask_videos": false,
+  "save_tracking_video": false,
+  "create_projection_video": true,
+  "clean_frames_after_video": false,
+  "convert_to_csv": true,
+  "num_tracking_workers": 1,
+  "num_plot_workers": 0,
+  "output_image_format": "jpg",
+  "output_video_filename": "full_projection_cpu.mp4"
+}

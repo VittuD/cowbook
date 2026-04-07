@@ -30,7 +30,7 @@ def test_pipeline_config_round_trip_matches_current_shape():
     assert data["runtime_root"] == "var"
     assert data["run_name"] == "default"
     assert data["output_root"] == "var/runs/default"
-    assert data["masks"]["Ch1"] == "test_img/combined_mask_ch1.png"
+    assert data["masks"]["Ch1"] == "assets/masks/combined_mask_ch1.png"
 
 
 def test_tracking_document_round_trip_for_raw_shape(raw_tracking_doc):

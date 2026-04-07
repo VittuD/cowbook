@@ -24,7 +24,6 @@ dist/
 
 # Runtime artifacts
 var/
-videos/
 VideoVanzetti04042024/*
 VideoVanzetti23042024/json/*
 runs/*

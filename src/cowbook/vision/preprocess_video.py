@@ -226,10 +226,10 @@ def preprocess_videos(config: Dict) -> List[List[Dict]]:
 
     # Where are the masks?
     masks_cfg: Dict[str, str] = config.get("masks", {
-        "Ch1": "test_img/combined_mask_ch1.png",
-        "Ch4": "test_img/combined_mask_ch4.png",
-        "Ch6": "test_img/combined_mask_ch6.png",
-        "Ch8": "test_img/combined_mask_ch8.png",
+        "Ch1": "assets/masks/combined_mask_ch1.png",
+        "Ch4": "assets/masks/combined_mask_ch4.png",
+        "Ch6": "assets/masks/combined_mask_ch6.png",
+        "Ch8": "assets/masks/combined_mask_ch8.png",
     })
 
     # Optional explicit camera -> channel mapping, e.g. {"1":"Ch1","4":"Ch4","6":"Ch6","8":"Ch8"}

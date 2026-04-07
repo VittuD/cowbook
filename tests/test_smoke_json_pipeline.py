@@ -25,7 +25,7 @@ def test_json_input_smoke_pipeline_generates_outputs(fixtures_dir: Path, tmp_pat
     output_json = tmp_path / "json"
     config = {
         "model_path": "models/yolov11_best.pt",
-        "calibration_file": "legacy/calibration_matrix.json",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
         "mask_videos": False,
         "output_image_folder": str(output_frames),
         "output_video_folder": str(output_videos),

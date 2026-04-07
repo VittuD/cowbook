@@ -8,6 +8,7 @@ from tqdm import tqdm  # Used for a progress bar during tracking
 from ultralytics import YOLO
 
 from cowbook.core.contracts import Detections, TrackingDocument, TrackingFrame, TrackingLabel
+from cowbook.core.runtime import assets_root
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
         save=save,
         conf=0.45,      # ↑ fewer false positives
         iou=0.5,        # NMS
-        tracker="trackers/cows_botsort.yaml",
+        tracker=str(assets_root() / "trackers" / "cows_botsort.yaml"),
     )
     frames: list[TrackingFrame] = []
 

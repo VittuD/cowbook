@@ -36,7 +36,7 @@ def test_process_video_group_accepts_existing_json_and_generates_processed_outpu
     output_image_folder.mkdir()
     config = {
         "model_path": "models/yolov11_best.pt",
-        "calibration_file": "legacy/calibration_matrix.json",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
         "save_tracking_video": False,
         "convert_to_csv": True,
         "num_plot_workers": 0,
@@ -75,7 +75,7 @@ def test_process_video_group_keeps_surviving_cameras_aligned_when_one_tracking_f
 
     config = {
         "model_path": "models/yolov11_best.pt",
-        "calibration_file": "legacy/calibration_matrix.json",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
         "save_tracking_video": False,
         "convert_to_csv": False,
         "num_plot_workers": 0,

@@ -45,10 +45,10 @@ def load_config(config_path, overrides=None):
         config.setdefault("mask_strict_half_rule", True)
         # Per-channel mask image paths (override in your JSON if you store masks elsewhere)
         config.setdefault("masks", {
-            "Ch1": "test_img/combined_mask_ch1.png",
-            "Ch4": "test_img/combined_mask_ch4.png",
-            "Ch6": "test_img/combined_mask_ch6.png",
-            "Ch8": "test_img/combined_mask_ch8.png",
+            "Ch1": "assets/masks/combined_mask_ch1.png",
+            "Ch4": "assets/masks/combined_mask_ch4.png",
+            "Ch6": "assets/masks/combined_mask_ch6.png",
+            "Ch8": "assets/masks/combined_mask_ch8.png",
         })
 
         # Optional: explicit camera->channel map (JSON keys are strings)

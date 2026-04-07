@@ -67,7 +67,7 @@ def test_group_processor_emits_structured_events_for_precomputed_json_group(
         [{"path": str(input_json), "camera_nr": 1}],
         "models/yolo.pt",
         {
-            "calibration_file": "legacy/calibration_matrix.json",
+            "calibration_file": "assets/calibration/calibration_matrix.json",
             "convert_to_csv": True,
             "num_plot_workers": 0,
             "output_image_format": "jpg",

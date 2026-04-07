@@ -130,10 +130,10 @@ class TrackingDocument:
 
 
 DEFAULT_MASKS = {
-    "Ch1": "test_img/combined_mask_ch1.png",
-    "Ch4": "test_img/combined_mask_ch4.png",
-    "Ch6": "test_img/combined_mask_ch6.png",
-    "Ch8": "test_img/combined_mask_ch8.png",
+    "Ch1": "assets/masks/combined_mask_ch1.png",
+    "Ch4": "assets/masks/combined_mask_ch4.png",
+    "Ch6": "assets/masks/combined_mask_ch6.png",
+    "Ch8": "assets/masks/combined_mask_ch8.png",
 }
 
 
@@ -144,7 +144,7 @@ class PipelineConfig:
     save_tracking_video: bool = False
     create_projection_video: bool = True
     video_groups: list[list[VideoGroupItem]] = field(default_factory=list)
-    calibration_file: str = "legacy/calibration_matrix.json"
+    calibration_file: str = "assets/calibration/calibration_matrix.json"
     runtime_root: str = "var"
     run_name: str = "default"
     output_root: str = "var/runs/default"
@@ -176,7 +176,9 @@ class PipelineConfig:
             save_tracking_video=bool(data.get("save_tracking_video", False)),
             create_projection_video=bool(data.get("create_projection_video", True)),
             video_groups=groups,
-            calibration_file=str(data.get("calibration_file", "legacy/calibration_matrix.json")),
+            calibration_file=str(
+                data.get("calibration_file", "assets/calibration/calibration_matrix.json")
+            ),
             runtime_root=str(data.get("runtime_root", "var")),
             run_name=str(data.get("run_name", "default")),
             output_root=str(data.get("output_root", "var/runs/default")),

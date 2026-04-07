@@ -4,6 +4,8 @@ import numpy as np
 from numpy.linalg import inv
 import cv2 as cv
 
+from cowbook.core.runtime import assets_root
+
 from . import points_data as pts_data
 
 CAMERA_WIDTH = 2688
@@ -12,7 +14,7 @@ CAMERA_HEIGHT = 1520
 UNDISTORTION_COEFFICENT = 0
 
 def get_calibrated_camera_model(
-    calibration_model_path="legacy/calibration_matrix.json",
+    calibration_model_path=str(assets_root() / "calibration" / "calibration_matrix.json"),
 ):
     """
     Check if in given path a camera model is already present, if return it, otherwise tell user to calibrate the camera first
@@ -47,7 +49,7 @@ def show_img(window_name, img):
     cv.imshow(window_name, img)
 
 def save_frame_image(projected_points, frame_num, output_path,
-                     barn_image_path="legacy/barn.png", barn_image=None):
+                     barn_image_path=str(assets_root() / "images" / "barn.png"), barn_image=None):
     """
     Save processed frame with projected points to an image file.
 

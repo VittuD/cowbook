@@ -39,7 +39,7 @@ where = ["src"]
 line-length = 100
 target-version = "py310"
 src = ["src", "tests"]
-extend-exclude = ["legacy"]
+extend-exclude = ["src/cowbook/vision/legacy_impl"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
