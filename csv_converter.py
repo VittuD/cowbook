@@ -40,24 +40,27 @@ import csv
 import argparse
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from _package_bootstrap import ensure_src_path
+
+ensure_src_path()
+
+from cowbook.contracts import TrackingDocument
+from cowbook.transforms import bbox_wh_area, centroid_from_xyxy, iter_csv_rows, normalize_labels_len
+
 
 # --------- helpers ---------
 
 def _load_json(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
-        return json.load(f)
+        return TrackingDocument.from_mapping(json.load(f)).to_dict()
 
 
 def _centroid_from_xyxy(b: List[float]) -> Tuple[float, float]:
-    x1, y1, x2, y2 = b
-    return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
+    return centroid_from_xyxy(b)
 
 
 def _bbox_wh_area(b: List[float]) -> Tuple[float, float, float]:
-    x1, y1, x2, y2 = b
-    w = max(0.0, x2 - x1)
-    h = max(0.0, y2 - y1)
-    return (w, h, w * h)
+    return bbox_wh_area(b)
 
 
 def _safe_get(lst: Optional[List[Any]], idx: int) -> Optional[Any]:
@@ -70,77 +73,14 @@ def _safe_get(lst: Optional[List[Any]], idx: int) -> Optional[Any]:
 
 def _normalize_labels_len(labels: List[Dict[str, Any]], n: int) -> List[Dict[str, Any]]:
     """Pad/truncate labels to length n."""
-    if labels is None:
-        labels = []
-    if len(labels) < n:
-        labels = labels + [{"class_id": None, "id": None} for _ in range(n - len(labels))]
-    elif len(labels) > n:
-        labels = labels[:n]
-    return labels
+    return normalize_labels_len(labels, n)
 
 
 # --------- core row extraction ---------
 
 def _iter_rows_from_json(doc: Dict[str, Any], source_tag: Optional[str] = None) -> Iterable[Dict[str, Any]]:
     """Yield one CSV row per detection per frame."""
-    frames: List[Dict[str, Any]] = doc.get("frames", []) or []
-
-    for frame in frames:
-        fid = int(frame.get("frame_id", 0))
-        dets = frame.get("detections", {}) or {}
-        xyxy = dets.get("xyxy", []) or []
-        cents = dets.get("centroids", None)  # may be None
-        projs = dets.get("projected_centroids", None)  # may be None (2D or 3D)
-
-        labels = frame.get("labels", []) or []
-        labels = _normalize_labels_len(labels, len(xyxy))
-
-        for i, box in enumerate(xyxy):
-            # label fields
-            lab = _safe_get(labels, i) or {}
-            class_id = lab.get("class_id")
-            det_id = lab.get("id")
-
-            # centroid (from JSON or computed)
-            cx, cy = (None, None)
-            c = _safe_get(cents, i)
-            if c is not None and isinstance(c, (list, tuple)) and len(c) >= 2:
-                cx, cy = float(c[0]), float(c[1])
-            else:
-                cx, cy = _centroid_from_xyxy(box)
-
-            # projected centroid (if present)
-            proj_x = proj_y = proj_z = None
-            p = _safe_get(projs, i)
-            if p is not None and isinstance(p, (list, tuple)) and len(p) >= 2:
-                proj_x, proj_y = float(p[0]), float(p[1])
-                if len(p) >= 3:
-                    proj_z = float(p[2])
-
-            # bbox derived
-            w, h, area = _bbox_wh_area(box)
-
-            row = {
-                "frame_id": fid,
-                "det_index": i + 1,   # 1-based index within the frame
-                "id": det_id,         # per-frame id (already reassigned elsewhere)
-                "class_id": class_id,
-                "x1": float(box[0]),
-                "y1": float(box[1]),
-                "x2": float(box[2]),
-                "y2": float(box[3]),
-                "w": w,
-                "h": h,
-                "area": area,
-                "centroid_x": cx,
-                "centroid_y": cy,
-                "proj_x": proj_x,
-                "proj_y": proj_y,
-                "proj_z": proj_z,
-            }
-            if source_tag is not None:
-                row["source"] = source_tag
-            yield row
+    yield from iter_csv_rows(doc, source_tag=source_tag)
 
 
 def _fieldnames(include_source: bool) -> List[str]:

@@ -9,7 +9,13 @@ from _package_bootstrap import ensure_src_path
 
 ensure_src_path()
 
-from cowbook.contracts import Detections, TrackingDocument, TrackingFrame, TrackingLabel
+from cowbook.contracts import TrackingDocument
+from cowbook.transforms import (
+    aggregate_projected_centroids,
+    convert_arrays_to_lists as transform_convert_arrays_to_lists,
+    extract_frames_data,
+    reconstruct_tracking_document,
+)
 
 def parse_json(json_file_path):
     """
@@ -39,22 +45,7 @@ def extract_data(json_data):
         Iterates over each frame in the JSON data, calculates centroids for each detection,
         and appends relevant data to a list of frames.
     """
-    frames_data = []
-    for frame in json_data['frames']:
-        frame_data = {
-            'frame_id': frame['frame_id'],
-            'detections': [
-                {
-                    'bbox': bbox,
-                    'centroid': [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-                }
-                for bbox in frame['detections']['xyxy']
-            ],
-            # Updated to store class_id and id for each label
-            'labels': [{"class_id": label["class_id"], "id": label["id"]} for label in frame.get('labels', [])]
-        }
-        frames_data.append(frame_data)
-    return frames_data
+    return extract_frames_data(json_data)
 
 def extract_projected_centroids_from_files(json_file_paths):
     """
@@ -66,21 +57,12 @@ def extract_projected_centroids_from_files(json_file_paths):
     Returns:
         dict: A dictionary where keys are frame IDs and values are lists of projected centroids.
     """
-    all_projected_centroids = {}
-
+    documents = []
     for json_file_path in json_file_paths:
         print(f"Extracting projected centroids from {json_file_path}")
         with open(json_file_path, 'r') as file:
-            data = json.load(file)
-        
-        for frame in data.get('frames', []):
-            frame_id = frame['frame_id']
-            projected_centroids = frame['detections'].get('projected_centroids', [])
-            if frame_id not in all_projected_centroids:
-                all_projected_centroids[frame_id] = []
-            all_projected_centroids[frame_id].extend(projected_centroids)
-    
-    return all_projected_centroids
+            documents.append(TrackingDocument.from_mapping(json.load(file)).to_dict())
+    return aggregate_projected_centroids(documents)
 
 def convert_arrays_to_lists(data):
     """
@@ -92,14 +74,7 @@ def convert_arrays_to_lists(data):
     Returns:
         any: A new data structure where all numpy arrays are replaced by lists.
     """
-    if isinstance(data, dict):
-        return {key: convert_arrays_to_lists(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [convert_arrays_to_lists(element) for element in data]
-    elif isinstance(data, np.ndarray):
-        return data.tolist()  # Convert numpy array to a list
-    else:
-        return data
+    return transform_convert_arrays_to_lists(data)
 
 def reconstruct_json(frames_data):
     """
@@ -113,24 +88,7 @@ def reconstruct_json(frames_data):
         dict: A JSON-like dictionary with the original structure,
               containing frames and detections with bounding boxes.
     """
-    json_data = {'frames': []}
-    for frame_data in frames_data:
-        frame = {
-            'frame_id': frame_data['frame_id'],
-            'detections': {
-                'xyxy': [convert_arrays_to_lists(detection['bbox']) for detection in frame_data['detections']],
-                'centroids': [convert_arrays_to_lists(detection['centroid']) for detection in frame_data['detections']],
-                # Convert 'projected_centroid' if present in each detection
-                'projected_centroids': [convert_arrays_to_lists(detection.get('projected_centroid')) for detection in frame_data['detections']]
-            },
-            'labels': [{"class_id": label["class_id"], "id": label["id"]} for label in frame_data.get('labels', [])]
-        }
-        json_data['frames'].append(frame)
-    
-    # Final conversion to ensure all arrays are converted
-    json_data = convert_arrays_to_lists(json_data)
-
-    return TrackingDocument.from_mapping(json_data).to_dict()
+    return reconstruct_tracking_document(frames_data)
 
 def process_detections(frame_data, mtx, dist):
     """
