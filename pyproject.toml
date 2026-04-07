@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cowbook"
+version = "0.1.0"
+description = "Cow tracking and ground-projection batch pipeline."
+readme = "readme.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Davide" }
+]
+dependencies = [
+  "numpy",
+  "opencv-python-headless",
+  "tqdm",
+  "ultralytics",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9,<10",
+  "pytest-cov>=7,<8",
+]
+
+[project.scripts]
+cowbook = "cowbook.cli:entrypoint"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
