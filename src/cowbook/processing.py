@@ -1,17 +1,24 @@
 # processing.py
 
 import json
-import numpy as np
-import cv2
+import logging
 
 from cowbook.contracts import TrackingDocument
-from cowbook.legacy_bridge import project_points_to_ground, render_projection_frame, undistort_points
+from cowbook.legacy_bridge import (
+    project_points_to_ground,
+    render_projection_frame,
+    undistort_points,
+)
 from cowbook.transforms import (
     aggregate_projected_centroids,
-    convert_arrays_to_lists as transform_convert_arrays_to_lists,
     extract_frames_data,
     reconstruct_tracking_document,
 )
+from cowbook.transforms import (
+    convert_arrays_to_lists as transform_convert_arrays_to_lists,
+)
+
+logger = logging.getLogger(__name__)
 
 def parse_json(json_file_path):
     """
@@ -55,7 +62,7 @@ def extract_projected_centroids_from_files(json_file_paths):
     """
     documents = []
     for json_file_path in json_file_paths:
-        print(f"Extracting projected centroids from {json_file_path}")
+        logger.info("Extracting projected centroids from %s", json_file_path)
         with open(json_file_path, 'r') as file:
             documents.append(TrackingDocument.from_mapping(json.load(file)).to_dict())
     return aggregate_projected_centroids(documents)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from preprocess_video import (
     _derive_masked_path,
     _ensure_mask_size,

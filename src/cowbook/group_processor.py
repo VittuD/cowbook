@@ -1,11 +1,9 @@
 # group_processor.py
 
-import os
-import json
 import logging
-from typing import List, Tuple
-
 import multiprocessing as mp
+import os
+from typing import List, Tuple
 
 from cowbook.frame_processor import process_and_save_frames
 from cowbook.json_merger import merge_json_files

@@ -12,7 +12,6 @@ from cowbook.services import (
     VideoService,
 )
 
-
 logger = logging.getLogger(__name__)
 
 

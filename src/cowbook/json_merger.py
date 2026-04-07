@@ -11,12 +11,15 @@ CLI:
     python json_merger.py --inputs a_processed.json b_processed.json ... --output merged_processed.json
 """
 
-import json
 import argparse
-from typing import List, Dict, Any
+import json
+import logging
+from typing import Any, Dict, List
 
 from cowbook.contracts import TrackingDocument
 from cowbook.transforms import centroid_from_xyxy, merge_tracking_documents
+
+logger = logging.getLogger(__name__)
 
 
 def _load_json(path: str) -> Dict[str, Any]:
@@ -60,7 +63,7 @@ def merge_json_files(input_files: List[str], output_file: str) -> None:
     with open(output_file, "w") as f:
         json.dump(merged_doc, f, indent=4)
 
-    print(
+    logger.info(
         f"Merged {len(input_files)} JSONs into {output_file} "
         f"({len(merged_doc['frames'])} frames; "
         f"max frame_id={max((frame['frame_id'] for frame in merged_doc['frames']), default='N/A')})"

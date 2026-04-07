@@ -1,11 +1,15 @@
 # tracking.py
 
-import cv2
 import json
-from ultralytics import YOLO
+import logging
+
+import cv2
 from tqdm import tqdm  # Used for a progress bar during tracking
+from ultralytics import YOLO
 
 from cowbook.contracts import Detections, TrackingDocument, TrackingFrame, TrackingLabel
+
+logger = logging.getLogger(__name__)
 
 def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
     """
@@ -72,7 +76,7 @@ def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
     json_data = TrackingDocument(frames=frames).to_dict()
     with open(output_json_path, 'w') as f:
         json.dump(json_data, f, indent=4)
-    print(f"Tracking data saved to {output_json_path}")
+    logger.info("Tracking data saved to %s", output_json_path)
 
     # Unload the model to free resources
     del model

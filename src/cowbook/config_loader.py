@@ -1,10 +1,13 @@
 # config_loader.py
 
 import json
+import logging
 import os
 
 from cowbook.contracts import PipelineConfig
 from cowbook.legacy_bridge import default_calibration_file
+
+logger = logging.getLogger(__name__)
 
 def load_config(config_path, overrides=None):
     """
@@ -105,5 +108,5 @@ def load_config(config_path, overrides=None):
         return PipelineConfig.from_mapping(config).to_dict()
 
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-        print(f"Error loading config: {e}")
+        logger.error("Error loading config: %s", e)
         return {}

@@ -1,8 +1,12 @@
 # video_processor.py
 
-import cv2
+import logging
 import os
 import re
+
+import cv2
+
+logger = logging.getLogger(__name__)
 
 def extract_frame_number(filename):
     """
@@ -75,4 +79,4 @@ def create_video_from_images(image_folder, output_video_path, fps=6):
 
     # Release the video writer
     video.release()
-    print(f"Video saved as {output_video_path}")
+    logger.info("Video saved as %s", output_video_path)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-
 from processing import convert_arrays_to_lists, extract_data, reconstruct_json
 
 

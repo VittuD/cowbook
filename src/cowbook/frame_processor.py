@@ -1,9 +1,17 @@
-import json
-import os
-import math
-from tqdm import tqdm
 import concurrent.futures as _fut  # parallel rendering
+import json
+import logging
+import math
+import os
 
+from tqdm import tqdm
+
+from cowbook.legacy_bridge import (
+    default_barn_image_path,
+    load_barn_image,
+    load_camera_model,
+    render_projection_frame,
+)
 from cowbook.processing import (
     extract_data,
     extract_projected_centroids_from_files,
@@ -12,12 +20,8 @@ from cowbook.processing import (
     project_to_ground,
     reconstruct_json,
 )
-from cowbook.legacy_bridge import (
-    default_barn_image_path,
-    load_barn_image,
-    load_camera_model,
-    render_projection_frame,
-)
+
+logger = logging.getLogger(__name__)
 
 # Global cache used within each worker process to avoid reloading the barn image on every frame
 _BARN_IMG = None
@@ -68,7 +72,7 @@ def process_and_save_frames(json_file_paths, camera_nrs, output_image_folder, ca
         updated_json_file_path = os.path.join(json_file_path.replace(".json", "_processed.json"))
         save_frame_data_json(frames_data, updated_json_file_path)
         updated_json_file_paths.append(updated_json_file_path)
-        print(f"Processed frame data saved to {updated_json_file_path}")
+        logger.info("Processed frame data saved to %s", updated_json_file_path)
     
     # Plot combined projected centroids from multiple JSON files for each frame and save as images
     base_filename = os.path.join(output_image_folder, "combined_projected_centroids")

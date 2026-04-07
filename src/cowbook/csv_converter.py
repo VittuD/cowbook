@@ -34,14 +34,17 @@ Examples:
 
 from __future__ import annotations
 
-import os
-import json
-import csv
 import argparse
+import csv
+import json
+import logging
+import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from cowbook.contracts import TrackingDocument
 from cowbook.transforms import bbox_wh_area, centroid_from_xyxy, iter_csv_rows, normalize_labels_len
+
+logger = logging.getLogger(__name__)
 
 
 # --------- helpers ---------
@@ -132,23 +135,13 @@ def main() -> None:
     def _rows():
         for path in inputs:
             doc = _load_json(path)
-            source_tag = None
-            if include_source:
-                # Use the provided column name, but the value is the basename of the file
-                # We'll attach the key in _write_csv via extrasaction="ignore" pattern,
-                # so add 'source' key to each row with the exact column name requested.
-                # Simpler: inject with a consistent key then remap if the user wants a different header.
-                pass
-            # We want the column header to match args.source_col; easiest is to yield rows with 'source',
-            # then post-rename the header if user asked for a custom name. Instead, simpler:
-            # put the desired key directly into rows.
             for row in _iter_rows_from_json(doc, source_tag=None):
                 if include_source:
                     row[args.source_col] = os.path.basename(path)
                 yield row
 
     _write_csv(_rows(), out_path, include_source=True if include_source else False)
-    print(f"Wrote CSV: {out_path} (from {len(inputs)} JSON file(s))")
+    logger.info("Wrote CSV: %s (from %d JSON file(s))", out_path, len(inputs))
 
 
 if __name__ == "__main__":
