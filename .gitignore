@@ -11,8 +11,9 @@
 # Built Visual Studio Code Extensions
 *.vsix
 
-# Ingore venv and everything in it
-venv/
+# Ignore venv and everything in it
+.venv/
+.venv-gpu/
 
 # Pycache files
 __pycache__/

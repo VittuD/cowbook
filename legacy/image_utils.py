@@ -484,7 +484,7 @@ def groundProjectPoint(camera_nr, mtx, dist, points):
 
     rotMat, _ = cv.Rodrigues(rvecs)
 
-    camera_position = -np.matrix(rotMat).T * np.matrix(tvecs)
+    camera_position = -(rotMat.T @ tvecs)
 
     real_pts = []
 
@@ -585,9 +585,12 @@ def testGroundProjectPoint(img, mtx, dist, top_view_points, indexes, z=180.0):
     # print(f"MSE: {mse}")
 
     # These are the correct cm
-    camera_position = -np.matrix(rotMat).T * np.matrix(tvecs)
+    camera_position = -(rotMat.T @ tvecs)
     print(
-        f"Camera position:\nX:{camera_position[0]}\nY:{camera_position[1]}\nZ:{camera_position[2]}\n"
+        f"Camera position:\n"
+        f"X:{float(camera_position[0, 0])}\n"
+        f"Y:{float(camera_position[1, 0])}\n"
+        f"Z:{float(camera_position[2, 0])}\n"
     )
 
     # interested_topdown_point_indexes = [0, 8, 27, 34, 47, 60]

@@ -7,6 +7,7 @@ import math
 import hashlib
 import logging
 import concurrent.futures as futures
+import multiprocessing as mp
 from typing import Dict, List, Tuple, Any
 
 logger = logging.getLogger(__name__)
@@ -213,7 +214,11 @@ def preprocess_videos(config: Dict) -> List[List[Dict]]:
     logger.info("Masking %d/%d videos with %d workers...", len(to_process), len(work_items), max_workers)
 
     if to_process:
-        with futures.ProcessPoolExecutor(max_workers=max_workers) as ex:
+        # Use "spawn" explicitly to avoid fork-related issues in multi-threaded runtimes.
+        with futures.ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=mp.get_context("spawn"),
+        ) as ex:
             jobs = [
                 ex.submit(_process_one_video, w["src"], w["dst"], w["mask_path"], strict_half_rule)
                 for w in to_process

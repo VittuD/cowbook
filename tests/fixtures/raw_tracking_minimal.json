@@ -1,0 +1,28 @@
+{
+  "frames": [
+    {
+      "frame_id": 0,
+      "detections": {
+        "xyxy": [
+          [10.0, 20.0, 30.0, 60.0],
+          [40.0, 50.0, 70.0, 90.0]
+        ]
+      },
+      "labels": [
+        {"class_id": 0, "id": 11},
+        {"class_id": 0, "id": 12}
+      ]
+    },
+    {
+      "frame_id": 1,
+      "detections": {
+        "xyxy": [
+          [12.0, 18.0, 34.0, 58.0]
+        ]
+      },
+      "labels": [
+        {"class_id": 1, "id": 21}
+      ]
+    }
+  ]
+}
