@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cowbook.pipeline import PipelineRunner
+from cowbook.app.pipeline import PipelineRunner
 
 
 class FakeConfigService:

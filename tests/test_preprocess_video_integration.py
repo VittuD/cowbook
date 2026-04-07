@@ -6,7 +6,8 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from preprocess_video import preprocess_videos
+
+from cowbook.vision.preprocess_video import preprocess_videos
 
 
 def _write_tiny_video(path: Path, frames: int = 2) -> None:

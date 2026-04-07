@@ -5,9 +5,10 @@ import shutil
 from pathlib import Path
 
 import cv2
-import group_processor
 import numpy as np
-from main import main
+
+from cowbook.app.pipeline import PipelineRunner
+from cowbook.workflows import group_processor
 
 
 class _FakePool:
@@ -58,6 +59,10 @@ def _build_json_smoke_config(tmp_path: Path, input_json: Path, clean_frames: boo
     return path
 
 
+def _run_pipeline(config_path: Path | str) -> None:
+    PipelineRunner().run(str(config_path))
+
+
 def test_main_invalid_config_returns_without_creating_output_dirs(tmp_path):
     config_path = tmp_path / "bad_config.json"
     config_path.write_text(
@@ -74,7 +79,7 @@ def test_main_invalid_config_returns_without_creating_output_dirs(tmp_path):
         )
     )
 
-    main(str(config_path))
+    _run_pipeline(config_path)
 
     assert not (tmp_path / "frames").exists()
     assert not (tmp_path / "videos").exists()
@@ -86,7 +91,7 @@ def test_main_clean_frames_after_video_removes_rendered_frames(fixtures_dir: Pat
     shutil.copyfile(fixtures_dir / "smoke_tracking_ch1_short.json", input_json)
     config_path = _build_json_smoke_config(tmp_path, input_json, clean_frames=True)
 
-    main(str(config_path))
+    _run_pipeline(config_path)
 
     assert (tmp_path / "videos" / "smoke_projection.mp4").exists()
     assert list((tmp_path / "frames").glob("*.jpg")) == []
@@ -124,7 +129,7 @@ def test_main_video_input_pipeline_works_with_stubbed_tracking(fixtures_dir: Pat
     config_path = tmp_path / "video_config.json"
     config_path.write_text(json.dumps(config))
 
-    main(str(config_path))
+    _run_pipeline(config_path)
 
     assert (tmp_path / "json" / "clip_tracking_processed.json").exists()
     assert (tmp_path / "json" / "group_1_merged_processed.json").exists()
@@ -146,8 +151,8 @@ def test_main_rerun_is_structurally_deterministic_for_json_input(fixtures_dir: P
     config_a = _build_json_smoke_config(run_a, input_a, clean_frames=False)
     config_b = _build_json_smoke_config(run_b, input_b, clean_frames=False)
 
-    main(str(config_a))
-    main(str(config_b))
+    _run_pipeline(config_a)
+    _run_pipeline(config_b)
 
     merged_a = json.loads((run_a / "json" / "group_1_merged_processed.json").read_text())
     merged_b = json.loads((run_b / "json" / "group_1_merged_processed.json").read_text())

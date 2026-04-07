@@ -149,36 +149,12 @@ pip install -r requirements.txt
 
 ```bash
 # uses config.json by default
-python main.py
+python -m cowbook
 
 # explicit config (positional or flag)
-python main.py config.my.json
-python main.py --config config.my.json
+python -m cowbook config.my.json
+python -m cowbook --config config.my.json
 ```
-
-### Command-line flags
-
-Tracking video saving:
-
-```bash
-# force ON (YOLO saves annotated videos)
-python main.py --save-tracking-video
-
-# force OFF (skip saving annotated videos)
-python main.py --no-save-tracking-video
-```
-
-Frame cleanup after assembling the final video (default: **ON**):
-
-```bash
-# keep per-frame images (disable cleanup)
-python main.py --no-clean-frames
-
-# explicitly enable cleanup (default behavior)
-python main.py --clean-frames
-```
-
-If neither cleanup flag is provided, `clean_frames_after_video` from `config.json` (default `true`) is used.
 
 ---
 

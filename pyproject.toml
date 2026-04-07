@@ -27,7 +27,7 @@ dev = [
 ]
 
 [project.scripts]
-cowbook = "cowbook.cli:entrypoint"
+cowbook = "cowbook.app.cli:entrypoint"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

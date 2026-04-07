@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-from preprocess_video import (
+
+from cowbook.vision.preprocess_video import (
     _derive_masked_path,
     _ensure_mask_size,
     _infer_channel_from_name,

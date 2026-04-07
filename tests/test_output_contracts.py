@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from json_merger import merge_json_files
+from cowbook.io.json_merger import merge_json_files
 
 
 def _assert_raw_tracking_contract(doc: dict) -> None:

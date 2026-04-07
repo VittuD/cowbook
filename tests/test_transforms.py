@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from cowbook.transforms import (
+from cowbook.core.transforms import (
     aggregate_projected_centroids,
     bbox_wh_area,
     centroid_from_xyxy,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from directory_manager import clear_output_directory, prepare_output_dirs
+from cowbook.io.directory_manager import clear_output_directory, prepare_output_dirs
 
 
 def test_prepare_output_dirs_creates_configured_directories(tmp_path):

@@ -5,7 +5,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from cowbook import legacy_bridge
+from cowbook.vision import legacy_bridge
 
 
 def test_legacy_bridge_defaults_resolve_inside_repo():

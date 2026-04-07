@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from processing import extract_projected_centroids_from_files
+from cowbook.vision.processing import extract_projected_centroids_from_files
 
 
 def test_extract_projected_centroids_from_files_merges_multiple_sources_by_frame(tmp_path):

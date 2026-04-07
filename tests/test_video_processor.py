@@ -3,7 +3,8 @@ from __future__ import annotations
 import cv2
 import numpy as np
 import pytest
-from video_processor import create_video_from_images, extract_frame_number
+
+from cowbook.io.video_processor import create_video_from_images, extract_frame_number
 
 
 def test_extract_frame_number_returns_minus_one_when_missing():

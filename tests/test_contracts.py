@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cowbook.contracts import (
+from cowbook.core.contracts import (
     Detections,
     PipelineConfig,
     TrackingDocument,

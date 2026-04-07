@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from config_loader import load_config
+from cowbook.io.config_loader import load_config
 
 
 def test_load_config_applies_defaults_and_normalizes_values(tmp_path):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from json_merger import merge_json_files
+from cowbook.io.json_merger import merge_json_files
 
 
 def test_merge_json_files_preserves_camera_local_identity_fields(tmp_path):

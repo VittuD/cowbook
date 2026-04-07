@@ -5,7 +5,12 @@ import shutil
 from pathlib import Path
 
 import pytest
-from main import main
+
+from cowbook.app.pipeline import PipelineRunner
+
+
+def _run_pipeline(config_path: Path | str) -> None:
+    PipelineRunner().run(str(config_path))
 
 
 @pytest.mark.smoke
@@ -45,7 +50,7 @@ def test_json_input_smoke_pipeline_generates_outputs(fixtures_dir: Path, tmp_pat
     }
     config_path.write_text(json.dumps(config))
 
-    main(str(config_path))
+    _run_pipeline(config_path)
 
     processed_json = tmp_path / "input_tracking_processed.json"
     merged_json = output_json / "group_1_merged_processed.json"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from csv_converter import _fieldnames, _iter_rows_from_json
+from cowbook.io.csv_converter import _fieldnames, _iter_rows_from_json
 
 
 def test_iter_rows_from_raw_json_computes_centroids_without_projection(raw_tracking_doc):

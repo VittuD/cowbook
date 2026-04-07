@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
-from processing import convert_arrays_to_lists, extract_data, reconstruct_json
+
+from cowbook.vision.processing import convert_arrays_to_lists, extract_data, reconstruct_json
 
 
 def test_extract_data_computes_centroids_and_preserves_labels(raw_tracking_doc):
