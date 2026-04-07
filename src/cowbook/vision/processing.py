@@ -12,11 +12,13 @@ from cowbook.core.transforms import (
 from cowbook.core.transforms import (
     convert_arrays_to_lists as transform_convert_arrays_to_lists,
 )
-from cowbook.vision.legacy_bridge import (
+from cowbook.vision.calibration import (
+    CameraModel,
+    build_camera_model,
     project_points_to_ground,
-    render_projection_frame,
-    undistort_points,
+    undistort_points_with_model,
 )
+from cowbook.vision.rendering import render_projection_frame
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,7 @@ def reconstruct_json(frames_data):
     """
     return reconstruct_tracking_document(frames_data)
 
-def process_detections(frame_data, mtx, dist):
+def process_detections(frame_data, mtx_or_camera_model, dist=None):
     """
     Undistort bounding boxes and centroids for a given frame.
 
@@ -109,6 +111,13 @@ def process_detections(frame_data, mtx, dist):
         Each bounding box and centroid is undistorted using the provided camera matrix 
         and distortion coefficients.
     """
+    if isinstance(mtx_or_camera_model, CameraModel):
+        camera_model = mtx_or_camera_model
+    else:
+        if dist is None:
+            raise ValueError("dist is required when passing raw camera matrices.")
+        camera_model = build_camera_model(mtx_or_camera_model, dist)
+
     dets = frame_data['detections']
     if not dets:
         frame_data['centroids'] = []
@@ -124,8 +133,8 @@ def process_detections(frame_data, mtx, dist):
         cps.append([cx, cy])
 
     # Batch undistort
-    bps_u = undistort_points(bps, mtx, dist)  # shape (2N, 2)
-    cps_u = undistort_points(cps, mtx, dist)  # shape (N, 2)
+    bps_u = undistort_points_with_model(bps, camera_model)  # shape (2N, 2)
+    cps_u = undistort_points_with_model(cps, camera_model)  # shape (N, 2)
 
     # Write back undistorted bbox corners and centroids
     centroids_out = []

@@ -6,7 +6,7 @@ import os
 
 from cowbook.core.contracts import PipelineConfig
 from cowbook.io.directory_manager import resolve_output_paths
-from cowbook.vision.legacy_bridge import default_calibration_file
+from cowbook.vision.calibration import default_calibration_file
 
 logger = logging.getLogger(__name__)
 

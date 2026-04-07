@@ -6,19 +6,21 @@ import os
 
 from tqdm import tqdm
 
-from cowbook.vision.legacy_bridge import (
-    default_barn_image_path,
-    load_barn_image,
-    load_camera_model,
-    render_projection_frame,
+from cowbook.vision.calibration import (
+    load_camera_setup,
+    load_projection_context,
 )
 from cowbook.vision.processing import (
     extract_data,
     extract_projected_centroids_from_files,
     parse_json,
     process_detections,
-    project_to_ground,
     reconstruct_json,
+)
+from cowbook.vision.rendering import (
+    default_barn_image_path,
+    load_barn_image,
+    render_projection_frame,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,8 +102,8 @@ def process_centroids(json_file, camera_nr, calibration_file):
     """
     Process detections from JSON, project centroids, and return the updated data.
     """
-    # Load calibration data
-    mtx, dist = load_camera_model(calibration_file)
+    camera_model = load_camera_setup(calibration_file)
+    projection_context = load_projection_context(camera_nr, calibration_file)
 
     # Load and extract data from the JSON tracking file
     json_data = parse_json(json_file)
@@ -110,12 +112,11 @@ def process_centroids(json_file, camera_nr, calibration_file):
     # Process each frame
     for frame in tqdm(frames_data, desc=f"Processing frames for camera {camera_nr}", unit="frame"):
         # Step 1: Undistort detections and centroids
-        frame = process_detections(frame, mtx, dist)
+        frame = process_detections(frame, camera_model)
         
         # Step 2: Project centroids to the ground plane
-        projected_centroids = project_to_ground(
+        projected_centroids = projection_context.project_points_to_ground(
             [detection["centroid"] for detection in frame["detections"]],
-            mtx, dist, camera_nr
         )
         
         # Step 3: Add projected centroids to each detection and prepare for JSON output

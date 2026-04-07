@@ -289,7 +289,7 @@ Included examples:
 - Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
 - `num_tracking_workers > 1` can increase GPU memory pressure significantly.
-- Some projection logic still relies on the legacy geometry implementation in [src/cowbook/vision/legacy_impl](/home/davide/Desktop/cowbook/src/cowbook/vision/legacy_impl).
+- Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](/home/davide/Desktop/cowbook/src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](/home/davide/Desktop/cowbook/assets/calibration/camera_correspondences.json).
 - YOLO API behavior can drift across `ultralytics` releases.
 
 ## Development

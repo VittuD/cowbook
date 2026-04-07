@@ -54,7 +54,7 @@ def test_cli_resolves_supported_overrides():
     }
 
 
-def test_cli_main_delegates_to_legacy_main(monkeypatch):
+def test_cli_main_delegates_to_pipeline_runner(monkeypatch):
     called = {}
 
     class FakeRunner:
