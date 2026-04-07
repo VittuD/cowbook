@@ -1,4 +1,4 @@
-"""Cowbook package entrypoints and package metadata."""
+"""Cowbook package entrypoints, metadata, and stable contracts."""
 
 __all__ = ["__version__"]
 

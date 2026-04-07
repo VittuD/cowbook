@@ -15,10 +15,16 @@ import json
 import argparse
 from typing import List, Dict, Any
 
+from _package_bootstrap import ensure_src_path
+
+ensure_src_path()
+
+from cowbook.contracts import TrackingDocument
+
 
 def _load_json(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
-        return json.load(f)
+        return TrackingDocument.from_mapping(json.load(f)).to_dict()
 
 
 def _compute_centroids_from_xyxy(xyxy_list: List[List[float]]) -> List[List[float]]:

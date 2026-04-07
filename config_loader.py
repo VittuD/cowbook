@@ -3,6 +3,12 @@
 import json
 import os
 
+from _package_bootstrap import ensure_src_path
+
+ensure_src_path()
+
+from cowbook.contracts import PipelineConfig
+
 def load_config(config_path, overrides=None):
     """
     Load configuration settings from a JSON file with error handling, defaults,
@@ -99,7 +105,7 @@ def load_config(config_path, overrides=None):
             if len(set(camera_ids)) < num_videos:
                 raise ValueError(f"Each video in group {gi} must be associated with a unique camera.")
 
-        return config
+        return PipelineConfig.from_mapping(config).to_dict()
 
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
         print(f"Error loading config: {e}")

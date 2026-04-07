@@ -5,6 +5,12 @@ import numpy as np
 import cv2
 import legacy.image_utils as utils  # Legacy utilities for image processing
 
+from _package_bootstrap import ensure_src_path
+
+ensure_src_path()
+
+from cowbook.contracts import Detections, TrackingDocument, TrackingFrame, TrackingLabel
+
 def parse_json(json_file_path):
     """
     Load and parse JSON tracking data.
@@ -16,7 +22,7 @@ def parse_json(json_file_path):
         dict: Parsed JSON data as a Python dictionary.
     """
     with open(json_file_path) as file:
-        return json.load(file)
+        return TrackingDocument.from_mapping(json.load(file)).to_dict()
 
 def extract_data(json_data):
     """
@@ -124,7 +130,7 @@ def reconstruct_json(frames_data):
     # Final conversion to ensure all arrays are converted
     json_data = convert_arrays_to_lists(json_data)
 
-    return json_data
+    return TrackingDocument.from_mapping(json_data).to_dict()
 
 def process_detections(frame_data, mtx, dist):
     """
