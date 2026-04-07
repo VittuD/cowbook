@@ -4,6 +4,7 @@ import json
 import os
 
 from cowbook.contracts import PipelineConfig
+from cowbook.legacy_bridge import default_calibration_file
 
 def load_config(config_path, overrides=None):
     """
@@ -20,7 +21,7 @@ def load_config(config_path, overrides=None):
         config.setdefault("save_tracking_video", False)
         config.setdefault("create_projection_video", True)
         config.setdefault("video_groups", [])
-        config.setdefault("calibration_file", "legacy/calibration_matrix.json")
+        config.setdefault("calibration_file", default_calibration_file())
         # Parallel rendering & image format
         config.setdefault("num_plot_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)            # 0 = sequential; >0 uses ProcessPoolExecutor
         config.setdefault("output_image_format", "jpg")     # "png" or "jpg"

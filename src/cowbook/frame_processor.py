@@ -3,7 +3,6 @@ import os
 import math
 from tqdm import tqdm
 import concurrent.futures as _fut  # parallel rendering
-import legacy.image_utils as utils  # Legacy utilities for image processing
 
 from cowbook.processing import (
     extract_data,
@@ -12,6 +11,12 @@ from cowbook.processing import (
     process_detections,
     project_to_ground,
     reconstruct_json,
+)
+from cowbook.legacy_bridge import (
+    default_barn_image_path,
+    load_barn_image,
+    load_camera_model,
+    render_projection_frame,
 )
 
 # Global cache used within each worker process to avoid reloading the barn image on every frame
@@ -32,10 +37,11 @@ def _render_frame_worker(args):
         else:
             _BARN_IMG = None
 
-    utils.save_frame_image(
+    render_projection_frame(
         projected_centroids,
         frame_id,
         frame_output_path,
+        barn_image_path=barn_image_path,
         barn_image=_BARN_IMG
     )
     return frame_output_path
@@ -81,7 +87,7 @@ def process_centroids(json_file, camera_nr, calibration_file):
     Process detections from JSON, project centroids, and return the updated data.
     """
     # Load calibration data
-    mtx, dist = utils.get_calibrated_camera_model(calibration_file)
+    mtx, dist = load_camera_model(calibration_file)
 
     # Load and extract data from the JSON tracking file
     json_data = parse_json(json_file)
@@ -134,7 +140,7 @@ def plot_combined_projected_centroids(json_file_paths, base_filename, num_worker
     ext = ".jpg" if image_format in ("jpg", "jpeg") else ".png"
 
     # Build work items
-    barn_image_path = "legacy/barn.png"
+    barn_image_path = default_barn_image_path()
     items = []
     for frame_id in sorted(all_projected_centroids.keys()):
         projected_centroids = all_projected_centroids[frame_id]
@@ -149,7 +155,12 @@ def plot_combined_projected_centroids(json_file_paths, base_filename, num_worker
             list(ex.map(_render_frame_worker, items, chunksize=16))
     else:
         # Sequential fallback; still avoids reloading barn per frame
-        import cv2 as _cv2
-        barn_img = _cv2.imread(barn_image_path) if os.path.exists(barn_image_path) else None
+        barn_img = load_barn_image(barn_image_path)
         for frame_id, projected_centroids, frame_output_path, _ in items:
-            utils.save_frame_image(projected_centroids, frame_id, frame_output_path, barn_image=barn_img)
+            render_projection_frame(
+                projected_centroids,
+                frame_id,
+                frame_output_path,
+                barn_image_path=barn_image_path,
+                barn_image=barn_img,
+            )

@@ -3,9 +3,9 @@
 import json
 import numpy as np
 import cv2
-import legacy.image_utils as utils  # Legacy utilities for image processing
 
 from cowbook.contracts import TrackingDocument
+from cowbook.legacy_bridge import project_points_to_ground, render_projection_frame, undistort_points
 from cowbook.transforms import (
     aggregate_projected_centroids,
     convert_arrays_to_lists as transform_convert_arrays_to_lists,
@@ -117,8 +117,8 @@ def process_detections(frame_data, mtx, dist):
         cps.append([cx, cy])
 
     # Batch undistort
-    bps_u = utils.undistort_points_given(bps, mtx, dist)  # shape (2N, 2)
-    cps_u = utils.undistort_points_given(cps, mtx, dist)  # shape (N, 2)
+    bps_u = undistort_points(bps, mtx, dist)  # shape (2N, 2)
+    cps_u = undistort_points(cps, mtx, dist)  # shape (N, 2)
 
     # Write back undistorted bbox corners and centroids
     centroids_out = []
@@ -151,7 +151,7 @@ def project_to_ground(centroids, mtx, dist, channel):
         Utilizes camera parameters and a specific channel identifier to project each centroid
         onto the ground plane for spatial analysis.
     """
-    return utils.groundProjectPoint(channel, mtx, dist, centroids)
+    return project_points_to_ground(channel, mtx, dist, centroids)
 
 # Example function that might be used to save each processed frame as an image (if needed)
 def save_frame_image(projected_points, frame_num, base_filename):
@@ -163,7 +163,5 @@ def save_frame_image(projected_points, frame_num, base_filename):
         frame_num (int): Frame number for naming.
         base_filename (str): Base name for the output image.
     """
-    # Convert projected points to an image format if necessary
-    barn_image = utils.points_to_barn(projected_points)
     output_filename = f"{base_filename}_frame{frame_num}.png"
-    cv2.imwrite(output_filename, barn_image[1])
+    render_projection_frame(projected_points, frame_num, output_filename)
