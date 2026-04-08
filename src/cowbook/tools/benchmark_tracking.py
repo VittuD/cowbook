@@ -306,6 +306,7 @@ def _prepare_benchmark_videos(
                 "source_video": video_path,
                 "prepared_video": prepared_path,
                 "prepared_duration_s": _probe_video_metadata(prepared_path)["duration_s"],
+                "preparation_method": "opencv_repeat",
             }
         )
     return prepared_videos, prepared_metadata
@@ -355,7 +356,7 @@ def _parse_args() -> argparse.Namespace:
         "--process-workers",
         type=int,
         default=0,
-        help="Worker count for process_parallel_models. Defaults to the number of videos.",
+        help="Worker count for process_parallel_models when no sweep is requested. Defaults to the number of videos.",
     )
     parser.add_argument(
         "--process-worker-sweep",
@@ -379,12 +380,12 @@ def _parse_args() -> argparse.Namespace:
         "--extend-seconds",
         type=int,
         default=0,
-        help="If > 0, create longer benchmark copies of the input videos with ffmpeg before running.",
+        help="If > 0, create longer benchmark copies of the input videos before running.",
     )
     parser.add_argument(
         "--prepared-video-dir",
         default="var/benchmarks/prepared_videos",
-        help="Directory for ffmpeg-generated benchmark videos when --extend-seconds is used.",
+        help="Directory for prepared benchmark videos when --extend-seconds is used.",
     )
     return parser.parse_args()
 
@@ -417,14 +418,14 @@ def main() -> int:
 
     summary: dict[str, Any] = {
         "source_videos": videos,
-        "videos": benchmark_videos,
+        "benchmark_videos": benchmark_videos,
         "video_count": len(benchmark_videos),
         "model_path": args.model_path,
         "tracker_config": args.tracker_config,
         "extend_seconds": args.extend_seconds,
         "prepared_video_dir": args.prepared_video_dir if args.extend_seconds > 0 else None,
         "prepared_videos": prepared_video_metadata,
-        "process_worker_sweep": process_worker_sweep or None,
+        "requested_process_worker_sweep": process_worker_sweep or None,
         "gpu_info": _query_gpu_info(),
         "results": [],
     }
