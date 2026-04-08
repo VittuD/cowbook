@@ -4,7 +4,7 @@ import pytest
 
 from cowbook.app.pipeline import PipelineRunner
 from cowbook.core.contracts import PipelineConfig, RunRequest
-from cowbook.execution import CancellationToken, InMemoryJobStore
+from cowbook.execution import CancellationToken, InMemoryJobStore, JobCancelledError
 
 
 class FakeConfigService:
@@ -327,3 +327,121 @@ def test_pipeline_runner_emits_error_code_for_video_failure():
     video_failed = [event for event in snapshot.events if event.event_type == "video_failed"][0]
     assert video_failed.payload["error_code"] == "video_failed"
     assert video_failed.payload["error_detail"] == "video boom"
+
+
+def test_pipeline_runner_run_config_routes_through_request_normalization():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    config_service = FakeConfigService(config)
+
+    result = PipelineRunner(
+        config_service=config_service,
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run_config(config, overrides={"fps": 8})
+
+    assert result is not None
+    assert len(config_service.normalize_calls) == 1
+    assert config_service.normalize_calls[0][1] == {"fps": 8}
+
+
+def test_pipeline_runner_emits_groups_empty_when_no_groups():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [],
+    }
+    observer = InMemoryJobStore()
+
+    result = PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-empty")
+
+    snapshot = observer.get("job-empty")
+    assert result is not None
+    assert snapshot is not None
+    assert any(event.event_type == "groups_empty" for event in snapshot.events)
+
+
+def test_pipeline_runner_handles_group_failure_and_marks_job_completed_with_errors():
+    class FailingGroupProcessingService(FakeGroupProcessingService):
+        def process_group(self, *args, **kwargs):
+            raise RuntimeError("group boom")
+
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    observer = InMemoryJobStore()
+
+    result = PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FailingGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-group-fail")
+
+    snapshot = observer.get("job-group-fail")
+    assert result is not None
+    assert snapshot is not None
+    group_failed = [event for event in snapshot.events if event.event_type == "group_failed"][0]
+    assert group_failed.payload["error_code"] == "group_failed"
+    assert snapshot.status == "completed"
+    assert snapshot.events[-1].payload["had_errors"] is True
+
+
+def test_pipeline_runner_handles_group_cancellation_via_token():
+    class CancellingGroupProcessingService(FakeGroupProcessingService):
+        def process_group(self, *args, reporter=None, cancellation_token=None):
+            cancellation_token.cancel()
+            raise JobCancelledError("cancelled")
+
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    observer = InMemoryJobStore()
+    cancellation_token = CancellationToken()
+
+    result = PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=CancellingGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-group-cancel", cancellation_token=cancellation_token)
+
+    snapshot = observer.get("job-group-cancel")
+    assert result is not None
+    assert snapshot is not None
+    assert any(event.event_type == "group_cancelled" for event in snapshot.events)
+    assert any(event.event_type == "job_cancelled" for event in snapshot.events)
+    assert result.status == "cancelled"

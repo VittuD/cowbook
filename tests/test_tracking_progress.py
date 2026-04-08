@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+from cowbook.execution import InMemoryJobStore, JobReporter, StageProgressReporter
 from cowbook.vision import tracking as tracking_module
 
 
@@ -133,3 +134,59 @@ def test_cleanup_tracking_emits_shared_stage_events(tmp_path, monkeypatch):
     assert any(payload["stage_name"] == "detect" for payload in progress_events)
     assert any(payload["stage_name"] == "cleanup_pass1" for payload in progress_events)
     assert any(payload["stage_name"] == "cleanup_pass2" for payload in progress_events)
+
+
+def test_stage_progress_reporter_uses_event_sink_and_unknown_total_milestones(capsys):
+    events = []
+    reporter = StageProgressReporter(
+        event_prefix="processing",
+        reporter_stage="processing",
+        stage_name="custom",
+        path_value="target",
+        event_sink=lambda event_type, payload: events.append((event_type, payload.copy())),
+        log_progress=True,
+    )
+
+    reporter.stage_started()
+    reporter.step_progress(1)
+    reporter.step_progress(5)
+    reporter.step_progress(11)
+    reporter.stage_completed()
+
+    assert [event_type for event_type, _ in events] == [
+        "processing_stage_started",
+        "processing_stage_progress",
+        "processing_stage_progress",
+        "processing_stage_completed",
+    ]
+    assert events[1][1]["current"] == 1
+    assert events[2][1]["current"] == 11
+    assert "[processing] custom: target started" in capsys.readouterr().out
+
+
+def test_stage_progress_reporter_emits_to_job_reporter_with_camera_and_fraction():
+    store = InMemoryJobStore()
+    job_reporter = JobReporter(job_id="job-stage", config_path="config.json", observer=store)
+    reporter = StageProgressReporter(
+        event_prefix="masking",
+        reporter_stage="masking",
+        stage_name="mask_videos",
+        path_value="masked",
+        camera_nr=4,
+        total=20,
+        reporter=job_reporter,
+        group_idx=2,
+        extra_payload={"kind": "demo"},
+    )
+
+    reporter.stage_started()
+    reporter.step_progress(1)
+    reporter.step_progress(20)
+    reporter.stage_completed()
+
+    snapshot = store.get("job-stage")
+    assert snapshot is not None
+    progress_payloads = [event.payload for event in snapshot.events if event.event_type == "masking_stage_progress"]
+    assert progress_payloads[0]["camera_nr"] == 4
+    assert progress_payloads[0]["kind"] == "demo"
+    assert progress_payloads[-1]["progress_fraction"] == 1.0

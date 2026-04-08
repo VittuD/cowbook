@@ -87,18 +87,30 @@ def _iter_rows_from_json(doc: Dict[str, Any], source_tag: Optional[str] = None) 
     yield from iter_csv_rows(doc, source_tag=source_tag)
 
 
-def _fieldnames(include_source: bool) -> List[str]:
+def _fieldnames(
+    source_col: Optional[str] = None,
+    *,
+    include_source: Optional[bool] = None,
+) -> List[str]:
+    if include_source is not None:
+        source_col = "source" if include_source else None
     core = [
         "frame_id", "det_index", "id", "class_id",
         "x1", "y1", "x2", "y2", "w", "h", "area",
         "centroid_x", "centroid_y",
         "proj_x", "proj_y", "proj_z",
     ]
-    return (["source"] + core) if include_source else core
+    return ([source_col] + core) if source_col else core
 
 
-def _write_csv(rows: Iterable[Dict[str, Any]], out_path: str, include_source: bool) -> None:
-    fn = _fieldnames(include_source)
+def _write_csv(
+    rows: Iterable[Dict[str, Any]],
+    out_path: str,
+    source_col: Optional[str] = None,
+    *,
+    include_source: Optional[bool] = None,
+) -> None:
+    fn = _fieldnames(source_col, include_source=include_source)
     # Ensure folder exists
     os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
 
@@ -135,17 +147,15 @@ def main() -> None:
         default_out = "merged.csv"
 
     out_path = args.output or default_out
-    include_source = args.source_col is not None
-
     def _rows():
         for path in inputs:
             doc = _load_json(path)
             for row in _iter_rows_from_json(doc, source_tag=None):
-                if include_source:
+                if args.source_col is not None:
                     row[args.source_col] = os.path.basename(path)
                 yield row
 
-    _write_csv(_rows(), out_path, include_source=True if include_source else False)
+    _write_csv(_rows(), out_path, source_col=args.source_col)
     logger.info("Wrote CSV: %s (from %d JSON file(s))", out_path, len(inputs))
 
 
