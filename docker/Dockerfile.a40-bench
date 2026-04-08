@@ -5,12 +5,26 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
+ARG APP_UID=1030
+ARG APP_GID=1030
+
 WORKDIR /app
 
 COPY . /app
 
 RUN python -m pip install --upgrade pip && \
-    python -m pip install -e .
+    python -m pip install -e . && \
+    groupadd --gid "${APP_GID}" cowbook && \
+    useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash cowbook && \
+    mkdir -p /app/var /home/cowbook/.cache /home/cowbook/.config/Ultralytics && \
+    chown -R cowbook:cowbook /app /home/cowbook
+
+ENV HOME=/home/cowbook \
+    XDG_CACHE_HOME=/home/cowbook/.cache \
+    YOLO_CONFIG_DIR=/home/cowbook/.config/Ultralytics \
+    TORCHINDUCTOR_CACHE_DIR=/home/cowbook/.cache/torchinductor
+
+USER cowbook
 
 ENTRYPOINT ["python", "-m", "cowbook.tools.benchmark_tracking"]
 CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--repeat", "1", "--output", "var/benchmarks/a40_tracking_benchmark.json"]
