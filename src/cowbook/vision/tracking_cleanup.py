@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Callable
 
 import cv2
 import numpy as np
@@ -24,6 +25,7 @@ from cowbook.vision.cleanup import DetectionFrame
 _CACHE_CONF = 0.001
 _CACHE_NMS_IOU = 0.90
 _CACHE_MAX_DET = 100
+ProgressCallback = Callable[[str, int, int | None], None]
 
 
 def _read_video_meta(video_path: str) -> tuple[float, int, int, int]:
@@ -63,6 +65,8 @@ def detect_video_to_frames(
     video_path: str,
     model_path: str,
     cleanup_config: TrackingCleanupConfig,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[DetectionFrame]:
     model = YOLO(model_path)
     _, width, height, frame_count = _read_video_meta(video_path)
@@ -76,9 +80,14 @@ def detect_video_to_frames(
     )
 
     frames: list[DetectionFrame] = []
-    for frame_idx, result in enumerate(
-        tqdm(results, desc="Detecting video for cleanup", total=frame_count or None)
-    ):
+    iterable = (
+        results
+        if progress_callback is not None
+        else tqdm(results, desc="Detecting video for cleanup", total=frame_count or None)
+    )
+    for frame_idx, result in enumerate(iterable):
+        if progress_callback is not None:
+            progress_callback("detect", frame_idx + 1, frame_count or None)
         shape = tuple(result.orig_shape) if hasattr(result, "orig_shape") else (height, width)
         if result.boxes is None or len(result.boxes) == 0:
             frames.append(
@@ -167,6 +176,8 @@ def track_from_detection_frames(
     tracker_yaml_path: Path,
     *,
     save_video_path: str | None = None,
+    progress_callback: ProgressCallback | None = None,
+    progress_stage: str = "track",
 ) -> TrackingDocument:
     fps, width, height, _ = _read_video_meta(video_path)
     tracker = build_tracker(tracker_yaml_path, fps=fps)
@@ -182,7 +193,15 @@ def track_from_detection_frames(
         writer = _open_writer(Path(save_video_path), fps=fps, width=width, height=height)
 
     frames: list[TrackingFrame] = []
-    for det_frame in tqdm(detection_frames, desc="Tracking cleaned detections", total=len(detection_frames)):
+    iterable = (
+        detection_frames
+        if progress_callback is not None
+        else tqdm(detection_frames, desc="Tracking cleaned detections", total=len(detection_frames))
+    )
+    total_frames = len(detection_frames)
+    for index, det_frame in enumerate(iterable):
+        if progress_callback is not None:
+            progress_callback(progress_stage, index + 1, total_frames)
         ok, frame = cap.read()
         if not ok:
             break

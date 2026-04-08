@@ -3,12 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import multiprocessing as mp
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from cowbook.io.video_processor import create_video_from_images
 from cowbook.tools.benchmark_tracking import _prepare_benchmark_videos, _query_gpu_info
+from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
 
 
@@ -54,12 +57,69 @@ def _count_frames_from_tracking_json(output_json_path: str) -> int:
     return len(document.get("frames", []))
 
 
+def _infer_camera_nr(video_path: str) -> int:
+    match = re.search(r"(?i)ch(\d+)", Path(video_path).name)
+    if match is None:
+        raise ValueError(
+            f"Could not infer camera number from video path: {video_path}. "
+            "Provide --camera-nrs explicitly."
+        )
+    return int(match.group(1))
+
+
+def _resolve_camera_nrs(video_paths: list[str], requested_camera_nrs: list[int] | None) -> list[int]:
+    if requested_camera_nrs is not None:
+        if len(requested_camera_nrs) != len(video_paths):
+            raise ValueError(
+                "--camera-nrs must have the same length as --videos after preparation."
+            )
+        return [int(camera_nr) for camera_nr in requested_camera_nrs]
+    return [_infer_camera_nr(video_path) for video_path in video_paths]
+
+
+def _log_progress(enabled: bool, message: str) -> None:
+    if enabled:
+        print(message, flush=True)
+
+
+def _make_frame_progress_logger(video_path: str, enabled: bool):
+    if not enabled:
+        return None
+
+    last_reported: dict[str, int] = {}
+
+    def _callback(stage: str, current: int, total: int | None) -> None:
+        previous = last_reported.get(stage, 0)
+        if total and total > 0:
+            interval = max(100, total // 20)
+            should_report = current == total or current == 1 or current - previous >= interval
+            if should_report:
+                _log_progress(
+                    True,
+                    f"[cleanup] {stage}: {video_path} frame {current}/{total}",
+                )
+                last_reported[stage] = current
+            return
+
+        interval = 300
+        should_report = current == 1 or current - previous >= interval
+        if should_report:
+            _log_progress(
+                True,
+                f"[cleanup] {stage}: {video_path} frame {current}",
+            )
+            last_reported[stage] = current
+
+    return _callback
+
+
 def _track_cleanup_worker(
     video_path: str,
     output_json_path: str,
     model_path: str,
     save_tracking_video: bool,
     tracking_cleanup: dict[str, Any],
+    log_progress: bool = False,
 ) -> CleanupRunResult:
     try:
         import torch  # type: ignore
@@ -69,14 +129,18 @@ def _track_cleanup_worker(
         pass
 
     start = time.perf_counter()
+    _log_progress(log_progress, f"[cleanup] start: {video_path}")
+    progress_callback = _make_frame_progress_logger(video_path, log_progress)
     track_video_with_yolo(
         video_path,
         output_json_path,
         model_path,
         save=save_tracking_video,
         tracking_cleanup=tracking_cleanup,
+        progress_callback=progress_callback,
     )
     elapsed_s = time.perf_counter() - start
+    _log_progress(log_progress, f"[cleanup] done: {video_path} in {elapsed_s:.2f}s")
     return CleanupRunResult(
         video_path=video_path,
         output_json_path=output_json_path,
@@ -118,6 +182,13 @@ def _parse_args() -> argparse.Namespace:
         help="Summary JSON filename under --output-root.",
     )
     parser.add_argument(
+        "--camera-nrs",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Optional camera numbers matching --videos order. If omitted, infer from ChN filenames.",
+    )
+    parser.add_argument(
         "--tracking-concurrency",
         type=int,
         default=1,
@@ -125,8 +196,43 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-tracking-video",
-        action="store_true",
-        help="Also save annotated tracking videos next to the JSON outputs.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable annotated tracking video output.",
+    )
+    parser.add_argument(
+        "--create-projection-video",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable or disable projection-frame rendering and combined projection video output.",
+    )
+    parser.add_argument(
+        "--calibration-file",
+        default="assets/calibration/camera_system.json",
+        help="Calibration bundle used for projected centroid rendering.",
+    )
+    parser.add_argument(
+        "--fps",
+        type=int,
+        default=6,
+        help="FPS used when assembling the combined projection video.",
+    )
+    parser.add_argument(
+        "--num-plot-workers",
+        type=int,
+        default=0,
+        help="Parallel workers for projection-frame rendering.",
+    )
+    parser.add_argument(
+        "--output-image-format",
+        choices=("jpg", "png"),
+        default="jpg",
+        help="Image format for rendered projection frames.",
+    )
+    parser.add_argument(
+        "--output-video-filename",
+        default="cleanup_projection.mp4",
+        help="Combined projection video filename under --output-root/videos.",
     )
     parser.add_argument(
         "--conf-threshold",
@@ -158,6 +264,12 @@ def _parse_args() -> argparse.Namespace:
         default=True,
         help="Enable or disable output smoothing after tracking.",
     )
+    parser.add_argument(
+        "--log-progress",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable coarse benchmark stage logging for console and swarm logs.",
+    )
     return parser.parse_args()
 
 
@@ -168,6 +280,7 @@ def main() -> int:
         videos,
         target_duration_seconds=args.extend_seconds,
         prepared_video_dir=args.prepared_video_dir,
+        log_progress=bool(args.log_progress),
     )
     benchmark_videos = prepared_videos or videos
 
@@ -175,6 +288,10 @@ def main() -> int:
     output_root.mkdir(parents=True, exist_ok=True)
     json_output_dir = output_root / "json"
     json_output_dir.mkdir(parents=True, exist_ok=True)
+    video_output_dir = output_root / "videos"
+    video_output_dir.mkdir(parents=True, exist_ok=True)
+    frame_output_dir = output_root / "frames"
+    frame_output_dir.mkdir(parents=True, exist_ok=True)
 
     tracking_cleanup = _default_cleanup_config()
     tracking_cleanup.update(
@@ -186,6 +303,7 @@ def main() -> int:
             "postprocess_smoothing": args.postprocess_smoothing,
         }
     )
+    camera_nrs = _resolve_camera_nrs(benchmark_videos, args.camera_nrs)
 
     tasks = [
         (
@@ -194,12 +312,21 @@ def main() -> int:
             args.model_path,
             bool(args.save_tracking_video),
             tracking_cleanup,
+            bool(args.log_progress),
         )
         for video_path in benchmark_videos
     ]
 
     requested_concurrency = max(1, int(args.tracking_concurrency))
     effective_concurrency = min(requested_concurrency, len(tasks))
+    _log_progress(
+        bool(args.log_progress),
+        (
+            f"[cleanup] launching benchmark for {len(tasks)} video(s) "
+            f"with requested concurrency={requested_concurrency}, "
+            f"effective concurrency={effective_concurrency}"
+        ),
+    )
     start = time.perf_counter()
     if effective_concurrency == 1:
         results = [_track_cleanup_worker(*task) for task in tasks]
@@ -208,10 +335,32 @@ def main() -> int:
         with ctx.Pool(processes=effective_concurrency) as pool:
             results = pool.starmap(_track_cleanup_worker, tasks)
     total_elapsed_s = time.perf_counter() - start
+    _log_progress(
+        bool(args.log_progress),
+        f"[cleanup] benchmark completed in {total_elapsed_s:.2f}s",
+    )
+
+    processed_json_paths: list[str] = []
+    projection_video_path: str | None = None
+    if args.create_projection_video:
+        _log_progress(bool(args.log_progress), "[cleanup] projection: rendering projected frames")
+        processed_json_paths = process_and_save_frames(
+            [result.output_json_path for result in results],
+            camera_nrs,
+            str(frame_output_dir),
+            args.calibration_file,
+            num_plot_workers=int(args.num_plot_workers),
+            output_image_format=str(args.output_image_format),
+        )
+        projection_video_path = str(video_output_dir / args.output_video_filename)
+        _log_progress(bool(args.log_progress), f"[cleanup] projection: assembling {projection_video_path}")
+        create_video_from_images(str(frame_output_dir), projection_video_path, fps=int(args.fps))
+        _log_progress(bool(args.log_progress), f"[cleanup] projection: done -> {projection_video_path}")
 
     summary = {
         "source_videos": videos,
         "benchmark_videos": benchmark_videos,
+        "camera_nrs": camera_nrs,
         "extend_seconds": args.extend_seconds,
         "prepared_video_dir": args.prepared_video_dir if args.extend_seconds > 0 else None,
         "prepared_videos": prepared_metadata,
@@ -220,6 +369,12 @@ def main() -> int:
         "requested_tracking_concurrency": requested_concurrency,
         "effective_tracking_concurrency": effective_concurrency,
         "save_tracking_video": bool(args.save_tracking_video),
+        "create_projection_video": bool(args.create_projection_video),
+        "calibration_file": args.calibration_file,
+        "output_image_format": args.output_image_format,
+        "num_plot_workers": int(args.num_plot_workers),
+        "projection_video_path": projection_video_path,
+        "processed_json_paths": processed_json_paths,
         "tracking_cleanup": tracking_cleanup,
         "total_elapsed_s": total_elapsed_s,
         "runs": [asdict(result) for result in results],

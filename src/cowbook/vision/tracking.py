@@ -107,9 +107,15 @@ def _track_video_with_cleanup(
     *,
     save: bool,
     cleanup_config: TrackingCleanupConfig,
+    progress_callback=None,
 ) -> None:
     tracker_yaml_path = assets_root() / "trackers" / "cows_botsort.yaml"
-    detection_frames = detect_video_to_frames(video_path, model_path, cleanup_config)
+    detection_frames = detect_video_to_frames(
+        video_path,
+        model_path,
+        cleanup_config,
+        progress_callback=progress_callback,
+    )
     preprocessed_frames = preprocess_detection_frames(detection_frames, cleanup_config)
     video_output_path = None
     if save:
@@ -120,6 +126,8 @@ def _track_video_with_cleanup(
         preprocessed_frames,
         tracker_yaml_path,
         save_video_path=video_output_path,
+        progress_callback=progress_callback,
+        progress_stage="track_pass1",
     )
 
     if cleanup_config.two_pass_prune_short_tracks:
@@ -130,6 +138,8 @@ def _track_video_with_cleanup(
             pruned_frames,
             tracker_yaml_path,
             save_video_path=video_output_path,
+            progress_callback=progress_callback,
+            progress_stage="track_pass2",
         )
 
     if cleanup_config.postprocess_smoothing:
@@ -146,6 +156,7 @@ def track_video_with_yolo(
     model_path,
     save=False,
     tracking_cleanup: dict | None = None,
+    progress_callback=None,
 ):
     cleanup_config = TrackingCleanupConfig.from_mapping(tracking_cleanup)
     if cleanup_config.enabled:
@@ -155,6 +166,7 @@ def track_video_with_yolo(
             model_path,
             save=save,
             cleanup_config=cleanup_config,
+            progress_callback=progress_callback,
         )
         return
     _track_video_direct(video_path, output_json_path, model_path, save=save)
