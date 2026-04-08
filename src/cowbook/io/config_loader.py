@@ -20,6 +20,151 @@ def _normalize_positive_int(config: dict, key: str) -> None:
         raise ValueError(f"'{key}' must be >= 1 (got {value!r}).")
     config[key] = value
 
+
+def _optional_float(value, key: str) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except Exception as e:
+        raise ValueError(f"'{key}' must be a number or null (got {value!r}).") from e
+
+
+def _normalize_tracking_cleanup(config: dict) -> None:
+    cleanup = config.get("tracking_cleanup")
+    if cleanup is None:
+        cleanup = {}
+    if not isinstance(cleanup, dict):
+        raise ValueError("'tracking_cleanup' must be an object when provided.")
+
+    defaults = {
+        "enabled": False,
+        "conf_threshold": 0.15,
+        "nms_mode": "hybrid_nms",
+        "nms_iou": 0.75,
+        "footpoint_dist_k": 0.18,
+        "footpoint_dist_min_px": 10.0,
+        "footpoint_iou_guard": 0.15,
+        "hybrid_iou_hard": 0.92,
+        "hybrid_iou_guard": 0.15,
+        "hybrid_footpoint_dist_k": 0.18,
+        "hybrid_footpoint_dist_min_px": 10.0,
+        "min_area_px": None,
+        "max_area_px": None,
+        "min_aspect_ratio": None,
+        "max_aspect_ratio": None,
+        "drop_edge_boxes": False,
+        "edge_margin_px": 10,
+        "roi": None,
+        "two_pass_prune_short_tracks": False,
+        "min_track_length": 30,
+        "postprocess_smoothing": False,
+        "smoothing_alpha": 0.65,
+        "gap_fill_max_frames": 3,
+        "max_center_speed_px_per_frame": 80.0,
+        "max_relative_area_change": 0.80,
+        "max_relative_aspect_change": 0.80,
+    }
+    cleanup = {**defaults, **cleanup}
+
+    cleanup["enabled"] = bool(cleanup["enabled"])
+    cleanup["drop_edge_boxes"] = bool(cleanup["drop_edge_boxes"])
+    cleanup["two_pass_prune_short_tracks"] = bool(cleanup["two_pass_prune_short_tracks"])
+    cleanup["postprocess_smoothing"] = bool(cleanup["postprocess_smoothing"])
+
+    for key in (
+        "conf_threshold",
+        "nms_iou",
+        "footpoint_dist_k",
+        "footpoint_dist_min_px",
+        "hybrid_iou_hard",
+        "hybrid_iou_guard",
+        "hybrid_footpoint_dist_k",
+        "hybrid_footpoint_dist_min_px",
+        "smoothing_alpha",
+        "max_center_speed_px_per_frame",
+        "max_relative_area_change",
+        "max_relative_aspect_change",
+    ):
+        cleanup[key] = float(cleanup[key])
+
+    cleanup["footpoint_iou_guard"] = _optional_float(
+        cleanup.get("footpoint_iou_guard"), "tracking_cleanup.footpoint_iou_guard"
+    )
+    cleanup["min_area_px"] = _optional_float(
+        cleanup.get("min_area_px"), "tracking_cleanup.min_area_px"
+    )
+    cleanup["max_area_px"] = _optional_float(
+        cleanup.get("max_area_px"), "tracking_cleanup.max_area_px"
+    )
+    cleanup["min_aspect_ratio"] = _optional_float(
+        cleanup.get("min_aspect_ratio"), "tracking_cleanup.min_aspect_ratio"
+    )
+    cleanup["max_aspect_ratio"] = _optional_float(
+        cleanup.get("max_aspect_ratio"), "tracking_cleanup.max_aspect_ratio"
+    )
+
+    try:
+        cleanup["edge_margin_px"] = int(cleanup["edge_margin_px"])
+        cleanup["min_track_length"] = int(cleanup["min_track_length"])
+        cleanup["gap_fill_max_frames"] = int(cleanup["gap_fill_max_frames"])
+    except Exception as e:
+        raise ValueError("tracking_cleanup integer fields must be integers.") from e
+
+    if cleanup["nms_mode"] not in {"iou_nms", "footpoint_nms", "hybrid_nms"}:
+        raise ValueError(
+            "tracking_cleanup.nms_mode must be one of 'iou_nms', 'footpoint_nms', or 'hybrid_nms'."
+        )
+    if cleanup["conf_threshold"] < 0:
+        raise ValueError("tracking_cleanup.conf_threshold must be >= 0.")
+    if cleanup["nms_iou"] <= 0 or cleanup["nms_iou"] > 1:
+        raise ValueError("tracking_cleanup.nms_iou must be in (0, 1].")
+    if cleanup["edge_margin_px"] < 0:
+        raise ValueError("tracking_cleanup.edge_margin_px must be >= 0.")
+    if cleanup["min_track_length"] < 1:
+        raise ValueError("tracking_cleanup.min_track_length must be >= 1.")
+    if cleanup["gap_fill_max_frames"] < 0:
+        raise ValueError("tracking_cleanup.gap_fill_max_frames must be >= 0.")
+    if cleanup["smoothing_alpha"] <= 0 or cleanup["smoothing_alpha"] >= 1:
+        raise ValueError("tracking_cleanup.smoothing_alpha must be in (0, 1).")
+    if cleanup["max_center_speed_px_per_frame"] < 0:
+        raise ValueError("tracking_cleanup.max_center_speed_px_per_frame must be >= 0.")
+    if cleanup["max_relative_area_change"] < 0:
+        raise ValueError("tracking_cleanup.max_relative_area_change must be >= 0.")
+    if cleanup["max_relative_aspect_change"] < 0:
+        raise ValueError("tracking_cleanup.max_relative_aspect_change must be >= 0.")
+    if cleanup["min_area_px"] is not None and cleanup["min_area_px"] < 0:
+        raise ValueError("tracking_cleanup.min_area_px must be >= 0.")
+    if cleanup["max_area_px"] is not None and cleanup["max_area_px"] < 0:
+        raise ValueError("tracking_cleanup.max_area_px must be >= 0.")
+    if (
+        cleanup["min_area_px"] is not None
+        and cleanup["max_area_px"] is not None
+        and cleanup["min_area_px"] > cleanup["max_area_px"]
+    ):
+        raise ValueError("tracking_cleanup.min_area_px must be <= tracking_cleanup.max_area_px.")
+    if (
+        cleanup["min_aspect_ratio"] is not None
+        and cleanup["max_aspect_ratio"] is not None
+        and cleanup["min_aspect_ratio"] > cleanup["max_aspect_ratio"]
+    ):
+        raise ValueError(
+            "tracking_cleanup.min_aspect_ratio must be <= tracking_cleanup.max_aspect_ratio."
+        )
+
+    roi = cleanup.get("roi")
+    if roi is not None:
+        if not isinstance(roi, list) or len(roi) < 3:
+            raise ValueError("tracking_cleanup.roi must be a polygon with at least 3 points.")
+        normalized_roi = []
+        for point in roi:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise ValueError("tracking_cleanup.roi points must be [x, y] pairs.")
+            normalized_roi.append([float(point[0]), float(point[1])])
+        cleanup["roi"] = normalized_roi
+
+    config["tracking_cleanup"] = cleanup
+
 def load_config(config_path, overrides=None):
     """
     Load configuration settings from a JSON file with error handling, defaults,
@@ -49,6 +194,7 @@ def load_config(config_path, overrides=None):
         config.setdefault("clean_frames_after_video", True)
         # Tracking concurrency (default to 1 to avoid GPU contention)
         config.setdefault("tracking_concurrency", 1)
+        config.setdefault("tracking_cleanup", {})
         # ---- Masking at inference ----
         config.setdefault("mask_videos", False)
         config.setdefault("num_mask_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)
@@ -84,6 +230,7 @@ def load_config(config_path, overrides=None):
             raise ValueError(f"'fps' must be an integer (got {config.get('fps')!r}).") from e
 
         _normalize_positive_int(config, "tracking_concurrency")
+        _normalize_tracking_cleanup(config)
 
         # image format normalized
         fmt = str(config.get("output_image_format", "jpg")).lower()

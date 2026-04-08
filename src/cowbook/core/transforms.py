@@ -149,6 +149,9 @@ def merge_tracking_documents(
                         camera_nr=tracking_label.camera_nr or source_camera_nr,
                         local_track_id=tracking_label.local_track_id or tracking_label.id,
                         global_id=tracking_label.global_id,
+                        det_idx=tracking_label.det_idx,
+                        real=tracking_label.real,
+                        src=tracking_label.src,
                     )
                 )
 

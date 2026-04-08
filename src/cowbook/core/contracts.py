@@ -34,6 +34,9 @@ class TrackingLabel:
     camera_nr: int | None = None
     local_track_id: int | None = None
     global_id: int | None = None
+    det_idx: int | None = None
+    real: int | None = None
+    src: str | None = None
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "TrackingLabel":
@@ -42,12 +45,18 @@ class TrackingLabel:
         camera_nr = data.get("camera_nr")
         local_track_id = data.get("local_track_id")
         global_id = data.get("global_id")
+        det_idx = data.get("det_idx")
+        real = data.get("real")
+        src = data.get("src")
         return cls(
             class_id=int(class_id) if class_id is not None else None,
             id=int(det_id) if det_id is not None else None,
             camera_nr=int(camera_nr) if camera_nr is not None else None,
             local_track_id=int(local_track_id) if local_track_id is not None else None,
             global_id=int(global_id) if global_id is not None else None,
+            det_idx=int(det_idx) if det_idx is not None else None,
+            real=int(real) if real is not None else None,
+            src=str(src) if src is not None else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,7 +73,127 @@ class TrackingLabel:
             or self.global_id is not None
         ):
             out["global_id"] = self.global_id
+        if self.det_idx is not None:
+            out["det_idx"] = self.det_idx
+        if self.real is not None:
+            out["real"] = self.real
+        if self.src is not None:
+            out["src"] = self.src
         return out
+
+
+@dataclass(slots=True)
+class TrackingCleanupConfig:
+    enabled: bool = False
+    conf_threshold: float = 0.15
+    nms_mode: str = "hybrid_nms"
+    nms_iou: float = 0.75
+    footpoint_dist_k: float = 0.18
+    footpoint_dist_min_px: float = 10.0
+    footpoint_iou_guard: float | None = 0.15
+    hybrid_iou_hard: float = 0.92
+    hybrid_iou_guard: float = 0.15
+    hybrid_footpoint_dist_k: float = 0.18
+    hybrid_footpoint_dist_min_px: float = 10.0
+    min_area_px: float | None = None
+    max_area_px: float | None = None
+    min_aspect_ratio: float | None = None
+    max_aspect_ratio: float | None = None
+    drop_edge_boxes: bool = False
+    edge_margin_px: int = 10
+    roi: list[list[float]] | None = None
+    two_pass_prune_short_tracks: bool = False
+    min_track_length: int = 30
+    postprocess_smoothing: bool = False
+    smoothing_alpha: float = 0.65
+    gap_fill_max_frames: int = 3
+    max_center_speed_px_per_frame: float = 80.0
+    max_relative_area_change: float = 0.80
+    max_relative_aspect_change: float = 0.80
+
+    @classmethod
+    def from_mapping(cls, data: dict[str, Any] | None) -> "TrackingCleanupConfig":
+        data = data or {}
+        roi_raw = data.get("roi")
+        roi = None
+        if roi_raw is not None:
+            roi = [_to_float_list(point) for point in roi_raw]
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            conf_threshold=float(data.get("conf_threshold", 0.15)),
+            nms_mode=str(data.get("nms_mode", "hybrid_nms")),
+            nms_iou=float(data.get("nms_iou", 0.75)),
+            footpoint_dist_k=float(data.get("footpoint_dist_k", 0.18)),
+            footpoint_dist_min_px=float(data.get("footpoint_dist_min_px", 10.0)),
+            footpoint_iou_guard=(
+                float(data["footpoint_iou_guard"])
+                if data.get("footpoint_iou_guard") is not None
+                else None
+            ),
+            hybrid_iou_hard=float(data.get("hybrid_iou_hard", 0.92)),
+            hybrid_iou_guard=float(data.get("hybrid_iou_guard", 0.15)),
+            hybrid_footpoint_dist_k=float(data.get("hybrid_footpoint_dist_k", 0.18)),
+            hybrid_footpoint_dist_min_px=float(data.get("hybrid_footpoint_dist_min_px", 10.0)),
+            min_area_px=(
+                float(data["min_area_px"]) if data.get("min_area_px") is not None else None
+            ),
+            max_area_px=(
+                float(data["max_area_px"]) if data.get("max_area_px") is not None else None
+            ),
+            min_aspect_ratio=(
+                float(data["min_aspect_ratio"])
+                if data.get("min_aspect_ratio") is not None
+                else None
+            ),
+            max_aspect_ratio=(
+                float(data["max_aspect_ratio"])
+                if data.get("max_aspect_ratio") is not None
+                else None
+            ),
+            drop_edge_boxes=bool(data.get("drop_edge_boxes", False)),
+            edge_margin_px=int(data.get("edge_margin_px", 10)),
+            roi=roi,
+            two_pass_prune_short_tracks=bool(data.get("two_pass_prune_short_tracks", False)),
+            min_track_length=int(data.get("min_track_length", 30)),
+            postprocess_smoothing=bool(data.get("postprocess_smoothing", False)),
+            smoothing_alpha=float(data.get("smoothing_alpha", 0.65)),
+            gap_fill_max_frames=int(data.get("gap_fill_max_frames", 3)),
+            max_center_speed_px_per_frame=float(
+                data.get("max_center_speed_px_per_frame", 80.0)
+            ),
+            max_relative_area_change=float(data.get("max_relative_area_change", 0.80)),
+            max_relative_aspect_change=float(data.get("max_relative_aspect_change", 0.80)),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "conf_threshold": self.conf_threshold,
+            "nms_mode": self.nms_mode,
+            "nms_iou": self.nms_iou,
+            "footpoint_dist_k": self.footpoint_dist_k,
+            "footpoint_dist_min_px": self.footpoint_dist_min_px,
+            "footpoint_iou_guard": self.footpoint_iou_guard,
+            "hybrid_iou_hard": self.hybrid_iou_hard,
+            "hybrid_iou_guard": self.hybrid_iou_guard,
+            "hybrid_footpoint_dist_k": self.hybrid_footpoint_dist_k,
+            "hybrid_footpoint_dist_min_px": self.hybrid_footpoint_dist_min_px,
+            "min_area_px": self.min_area_px,
+            "max_area_px": self.max_area_px,
+            "min_aspect_ratio": self.min_aspect_ratio,
+            "max_aspect_ratio": self.max_aspect_ratio,
+            "drop_edge_boxes": self.drop_edge_boxes,
+            "edge_margin_px": self.edge_margin_px,
+            "roi": self.roi,
+            "two_pass_prune_short_tracks": self.two_pass_prune_short_tracks,
+            "min_track_length": self.min_track_length,
+            "postprocess_smoothing": self.postprocess_smoothing,
+            "smoothing_alpha": self.smoothing_alpha,
+            "gap_fill_max_frames": self.gap_fill_max_frames,
+            "max_center_speed_px_per_frame": self.max_center_speed_px_per_frame,
+            "max_relative_area_change": self.max_relative_area_change,
+            "max_relative_aspect_change": self.max_relative_aspect_change,
+        }
 
 
 @dataclass(slots=True)
@@ -159,6 +288,7 @@ class PipelineConfig:
     convert_to_csv: bool = True
     clean_frames_after_video: bool = True
     tracking_concurrency: int = 1
+    tracking_cleanup: TrackingCleanupConfig = field(default_factory=TrackingCleanupConfig)
     mask_videos: bool = False
     masked_video_folder: str = "var/cache/masked_videos"
     num_mask_workers: int = 0
@@ -193,6 +323,7 @@ class PipelineConfig:
             convert_to_csv=bool(data.get("convert_to_csv", True)),
             clean_frames_after_video=bool(data.get("clean_frames_after_video", True)),
             tracking_concurrency=int(data.get("tracking_concurrency", 1)),
+            tracking_cleanup=TrackingCleanupConfig.from_mapping(data.get("tracking_cleanup")),
             mask_videos=bool(data.get("mask_videos", False)),
             masked_video_folder=str(data.get("masked_video_folder", "var/cache/masked_videos")),
             num_mask_workers=int(data.get("num_mask_workers", 0)),
@@ -223,6 +354,7 @@ class PipelineConfig:
             "convert_to_csv": self.convert_to_csv,
             "clean_frames_after_video": self.clean_frames_after_video,
             "tracking_concurrency": self.tracking_concurrency,
+            "tracking_cleanup": self.tracking_cleanup.to_dict(),
             "mask_videos": self.mask_videos,
             "masked_video_folder": self.masked_video_folder,
             "num_mask_workers": self.num_mask_workers,

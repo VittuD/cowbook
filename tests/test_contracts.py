@@ -3,6 +3,7 @@ from __future__ import annotations
 from cowbook.core.contracts import (
     Detections,
     PipelineConfig,
+    TrackingCleanupConfig,
     TrackingDocument,
     TrackingFrame,
     TrackingLabel,
@@ -31,6 +32,7 @@ def test_pipeline_config_round_trip_matches_current_shape():
     assert data["run_name"] == "default"
     assert data["output_root"] == "var/runs/default"
     assert data["masks"]["Ch1"] == "assets/masks/combined_mask_ch1.png"
+    assert data["tracking_cleanup"]["enabled"] is False
 
 
 def test_tracking_document_round_trip_for_raw_shape(raw_tracking_doc):
@@ -65,6 +67,42 @@ def test_tracking_frame_serialization_preserves_optional_fields():
         },
         "labels": [{"class_id": 0, "id": 1}],
     }
+
+
+def test_tracking_label_round_trip_preserves_cleanup_metadata():
+    label = TrackingLabel.from_mapping(
+        {
+            "class_id": 0,
+            "id": 7,
+            "det_idx": 3,
+            "real": 0,
+            "src": "gap_fill",
+        }
+    )
+
+    assert label.to_dict() == {
+        "class_id": 0,
+        "id": 7,
+        "det_idx": 3,
+        "real": 0,
+        "src": "gap_fill",
+    }
+
+
+def test_tracking_cleanup_config_round_trip_preserves_nested_shape():
+    cleanup = TrackingCleanupConfig.from_mapping(
+        {
+            "enabled": True,
+            "roi": [[1, 2], [3, 4], [5, 6]],
+            "two_pass_prune_short_tracks": True,
+        }
+    )
+
+    data = cleanup.to_dict()
+
+    assert data["enabled"] is True
+    assert data["roi"] == [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
+    assert data["two_pass_prune_short_tracks"] is True
 
 
 def test_video_group_item_normalizes_camera_number():

@@ -25,6 +25,7 @@ def _tracking_worker(
     output_json: str,
     model_ref: str,
     save: bool,
+    tracking_cleanup: dict | None = None,
 ) -> Tuple[str | None, str | None]:
     """
     Run tracking for a single video in a separate process.
@@ -40,12 +41,10 @@ def _tracking_worker(
         pass
 
     try:
-        track_video_with_yolo(
-            video_path,
-            output_json,
-            model_ref,
-            save=save,
-        )
+        kwargs = {"save": save}
+        if tracking_cleanup and tracking_cleanup.get("enabled"):
+            kwargs["tracking_cleanup"] = tracking_cleanup
+        track_video_with_yolo(video_path, output_json, model_ref, **kwargs)
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
@@ -139,6 +138,7 @@ def process_video_group(
                 output_json,
                 config.get("model_path", None) if "model_path" in config else model_ref,
                 bool(config.get("save_tracking_video", False)),
+                config.get("tracking_cleanup"),
                 camera_nr,
             )
         )
@@ -168,10 +168,10 @@ def process_video_group(
 
         ctx = mp.get_context("spawn")
         with ctx.Pool(processes=effective_tracking_concurrency) as pool:
-            results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
+            results = pool.starmap(_tracking_worker, [task[:5] for task in tasks])
         _raise_if_cancelled(cancellation_token)
 
-        for (output_json, err), (_, _, _, _, camera_nr) in zip(results, tasks):
+        for (output_json, err), (_, _, _, _, _, camera_nr) in zip(results, tasks):
             if err:
                 logger.error("%s", err)
                 tracking_errors.append(err)

@@ -2,17 +2,34 @@
 
 import json
 import logging
+from pathlib import Path
 
 import cv2
 from tqdm import tqdm  # Used for a progress bar during tracking
 from ultralytics import YOLO
 
-from cowbook.core.contracts import Detections, TrackingDocument, TrackingFrame, TrackingLabel
+from cowbook.core.contracts import (
+    Detections,
+    TrackingCleanupConfig,
+    TrackingDocument,
+    TrackingFrame,
+    TrackingLabel,
+)
 from cowbook.core.runtime import assets_root
+from cowbook.vision.cleanup import (
+    compute_short_track_ids,
+    postprocess_tracking_document,
+    preprocess_detection_frames,
+    prune_detection_frames_by_track_ids,
+)
+from cowbook.vision.tracking_cleanup import (
+    detect_video_to_frames,
+    track_from_detection_frames,
+)
 
 logger = logging.getLogger(__name__)
 
-def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
+def _track_video_direct(video_path, output_json_path, model_path, save=False):
     """
     Track objects in a video using YOLOv8 and save results as a JSON file.
 
@@ -81,6 +98,66 @@ def track_video_with_yolo(video_path, output_json_path, model_path, save=False):
 
     # Unload the model to free resources
     del model
+
+
+def _track_video_with_cleanup(
+    video_path: str,
+    output_json_path: str,
+    model_path: str,
+    *,
+    save: bool,
+    cleanup_config: TrackingCleanupConfig,
+) -> None:
+    tracker_yaml_path = assets_root() / "trackers" / "cows_botsort.yaml"
+    detection_frames = detect_video_to_frames(video_path, model_path, cleanup_config)
+    preprocessed_frames = preprocess_detection_frames(detection_frames, cleanup_config)
+    video_output_path = None
+    if save:
+        video_output_path = str(Path(output_json_path).with_suffix(".mp4"))
+
+    tracked = track_from_detection_frames(
+        video_path,
+        preprocessed_frames,
+        tracker_yaml_path,
+        save_video_path=video_output_path,
+    )
+
+    if cleanup_config.two_pass_prune_short_tracks:
+        short_track_ids = compute_short_track_ids(tracked, cleanup_config.min_track_length)
+        pruned_frames = prune_detection_frames_by_track_ids(preprocessed_frames, tracked, short_track_ids)
+        tracked = track_from_detection_frames(
+            video_path,
+            pruned_frames,
+            tracker_yaml_path,
+            save_video_path=video_output_path,
+        )
+
+    if cleanup_config.postprocess_smoothing:
+        tracked = postprocess_tracking_document(tracked, cleanup_config)
+
+    with open(output_json_path, "w") as f:
+        json.dump(tracked.to_dict(), f, indent=4)
+    logger.info("Tracking data saved to %s", output_json_path)
+
+
+def track_video_with_yolo(
+    video_path,
+    output_json_path,
+    model_path,
+    save=False,
+    tracking_cleanup: dict | None = None,
+):
+    cleanup_config = TrackingCleanupConfig.from_mapping(tracking_cleanup)
+    if cleanup_config.enabled:
+        _track_video_with_cleanup(
+            video_path,
+            output_json_path,
+            model_path,
+            save=save,
+            cleanup_config=cleanup_config,
+        )
+        return
+    _track_video_direct(video_path, output_json_path, model_path, save=save)
 
 def load_yolo_model(model_path):
     """
