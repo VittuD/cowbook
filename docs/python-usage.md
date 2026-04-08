@@ -48,6 +48,8 @@ config = load_pipeline_config_object(
 
 `load_pipeline_config_object(...)` applies the same runtime validation rules and does not mutate the input object.
 
+At execution time, `tracking_concurrency=1` uses the same tracking/reporting contract as the multi-process path, but runs tracking inline to avoid single-worker process overhead. Within that inline path, Cowbook may reuse one YOLO model instance per `(model_path, tracking mode)` during a group run. Direct tracking and cleanup tracking stay isolated from each other so tracker state does not bleed across modes.
+
 Typed programmatic submission:
 
 ```python

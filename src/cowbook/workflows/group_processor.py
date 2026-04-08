@@ -18,7 +18,7 @@ from cowbook.execution import (
 from cowbook.io.csv_converter import json_to_csv
 from cowbook.io.json_merger import merge_json_files
 from cowbook.vision.frame_processor import process_and_save_frames
-from cowbook.vision.tracking import track_video_with_yolo
+from cowbook.vision.tracking import load_yolo_model, track_video_with_yolo
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +79,69 @@ def _tracking_worker(
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
+
+
+def _tracking_mode(task: _TrackingTask) -> str:
+    """Return the cache partition for a tracking task.
+
+    Direct tracking uses Ultralytics' built-in tracker callbacks, while cleanup
+    tracking performs a plain detection pass before running the custom tracker.
+    Those modes must not share the same YOLO instance because Ultralytics stores
+    tracking callbacks on the model object.
+    """
+    if task.tracking_cleanup and task.tracking_cleanup.get("enabled"):
+        return "cleanup"
+    return "track"
+
+
+def _run_tracking_inline(
+    tasks: list[_TrackingTask],
+    *,
+    reporter: JobReporter | None,
+    group_idx: int,
+    log_progress: bool,
+    cancellation_token: CancellationToken | None,
+) -> list[Tuple[str | None, str | None]]:
+    """Run tracking synchronously in the current process.
+
+    This mirrors the pooled execution contract: same return shape, same error
+    formatting, and the same progress/reporter behavior. It is intentionally
+    used only for the effective single-worker case where multiprocessing adds
+    process startup and teardown cost without adding throughput.
+    """
+    model_cache: dict[tuple[str, str], object] = {}
+    results: list[Tuple[str | None, str | None]] = []
+    try:
+        for task in tasks:
+            _raise_if_cancelled(cancellation_token)
+            try:
+                cache_key = (task.model_ref, _tracking_mode(task))
+                model = model_cache.get(cache_key)
+                if model is None:
+                    model = load_yolo_model(task.model_ref)
+                    model_cache[cache_key] = model
+                kwargs = {
+                    "save": task.save,
+                    "log_progress": log_progress,
+                    "reporter": reporter,
+                    "group_idx": group_idx,
+                    "camera_nr": task.camera_nr,
+                    "model": model,
+                }
+                if task.tracking_cleanup and task.tracking_cleanup.get("enabled"):
+                    kwargs["tracking_cleanup"] = task.tracking_cleanup
+                track_video_with_yolo(
+                    task.video_path,
+                    task.output_json,
+                    task.model_ref,
+                    **kwargs,
+                )
+                results.append((task.output_json, None))
+            except Exception as e:
+                results.append((None, f"Tracking failed for {task.video_path}: {e}"))
+        return results
+    finally:
+        model_cache.clear()
 
 
 def _drain_tracking_progress_queue(progress_queue, reporter: JobReporter | None) -> None:
@@ -250,13 +313,23 @@ def _run_tracking_tasks(
             },
         )
 
-    results = _run_tracking_pool(
-        tasks,
-        effective_tracking_concurrency=effective_tracking_concurrency,
-        reporter=reporter,
-        group_idx=group_idx,
-        log_progress=bool(config.get("log_progress", False)),
-    )
+    log_progress = bool(config.get("log_progress", False))
+    if effective_tracking_concurrency == 1:
+        results = _run_tracking_inline(
+            tasks,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=log_progress,
+            cancellation_token=cancellation_token,
+        )
+    else:
+        results = _run_tracking_pool(
+            tasks,
+            effective_tracking_concurrency=effective_tracking_concurrency,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=log_progress,
+        )
     _raise_if_cancelled(cancellation_token)
 
     tracked_source_entries: list[tuple[str, int]] = []

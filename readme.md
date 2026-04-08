@@ -172,6 +172,8 @@ Request-based runtime entrypoints return a normalized `RunResult`, which wraps t
 
 Config loading is strict: file-based loading raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and both file-based and in-memory config normalization raise `ValueError` for invalid runtime values. In-memory config loading does not mutate the caller-provided object.
 
+For GPU-oriented runs, `tracking_concurrency=1` is the intended baseline on smaller cards. Cowbook keeps the same execution events and output contract in that mode, but bypasses multiprocessing and reuses one YOLO model instance per `(model_path, tracking mode)` inside a group to avoid unnecessary startup cost.
+
 Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker
@@ -273,6 +275,9 @@ Notes:
 
 - input paths may be videos or precomputed tracking JSON files
 - `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
+- when effective tracking concurrency is `1`, tracking runs inline instead of through a worker process
+- the inline single-worker path may reuse one YOLO model instance per `(model_path, tracking mode)` within a group
+- direct tracking and cleanup tracking do not share a reused model instance, so tracker state does not bleed across modes
 - `log_progress` enables human-readable milestone logs for long tracking stages
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`

@@ -136,6 +136,61 @@ def test_cleanup_tracking_emits_shared_stage_events(tmp_path, monkeypatch):
     assert any(payload["stage_name"] == "cleanup_pass2" for payload in progress_events)
 
 
+def test_direct_tracking_uses_supplied_model_without_loading_again(tmp_path, monkeypatch):
+    output_json = tmp_path / "tracking.json"
+
+    class FakeCap:
+        def get(self, _prop):
+            return 1
+
+        def release(self):
+            return None
+
+    class FakeTensor:
+        def __init__(self, value):
+            self.value = value
+
+        def item(self):
+            return self.value
+
+    class FakeBox:
+        def __init__(self, coords, class_id, track_id):
+            self.xyxy = [coords]
+            self.cls = FakeTensor(class_id)
+            self.id = FakeTensor(track_id)
+
+    class FakeModel:
+        def __init__(self):
+            self.calls = 0
+
+        def track(self, **_kwargs):
+            self.calls += 1
+            yield SimpleNamespace(boxes=[FakeBox([1.0, 2.0, 3.0, 4.0], 0, 11)])
+
+    monkeypatch.setattr(
+        tracking_module.cv2,
+        "VideoCapture",
+        lambda _path: FakeCap(),
+    )
+    monkeypatch.setattr(
+        tracking_module,
+        "load_yolo_model",
+        lambda _path: (_ for _ in ()).throw(AssertionError("loader should not run")),
+    )
+    model = FakeModel()
+
+    tracking_module.track_video_with_yolo(
+        "video.mp4",
+        str(output_json),
+        "model.pt",
+        model=model,
+    )
+
+    assert model.calls == 1
+    saved = json.loads(output_json.read_text(encoding="utf-8"))
+    assert len(saved["frames"]) == 1
+
+
 def test_stage_progress_reporter_uses_event_sink_and_unknown_total_milestones(capsys):
     events = []
     reporter = StageProgressReporter(
