@@ -27,6 +27,11 @@ class BenchmarkModeResult:
     notes: list[str] | None = None
 
 
+def _log_progress(enabled: bool, message: str) -> None:
+    if enabled:
+        print(message, flush=True)
+
+
 def _default_tracker_config() -> str:
     return str(assets_root() / "trackers" / "cows_botsort.yaml")
 
@@ -252,6 +257,7 @@ def _build_extended_video(
     *,
     target_duration_seconds: int,
     output_dir: Path,
+    log_progress: bool = False,
 ) -> str:
     output_dir.mkdir(parents=True, exist_ok=True)
     source_path = Path(source_video)
@@ -260,8 +266,16 @@ def _build_extended_video(
     if output_path.exists():
         existing_duration = float(_probe_video_metadata(str(output_path))["duration_s"])
         if existing_duration >= float(target_duration_seconds) - 0.5:
+            _log_progress(
+                log_progress,
+                f"[prepare] reusing existing extended video: {output_path} ({existing_duration:.1f}s)",
+            )
             return str(output_path)
 
+    _log_progress(
+        log_progress,
+        f"[prepare] building extended video for {source_path} -> {output_path} ({target_duration_seconds}s)",
+    )
     frames, fps, frame_size = _load_video_frames(str(source_path))
     target_frame_count = max(1, int(round(float(target_duration_seconds) * fps)))
     writer = cv2.VideoWriter(
@@ -279,6 +293,10 @@ def _build_extended_video(
     finally:
         writer.release()
 
+    _log_progress(
+        log_progress,
+        f"[prepare] wrote extended video: {output_path} ({target_frame_count} frames at {fps:.2f} FPS)",
+    )
     return str(output_path)
 
 
@@ -287,6 +305,7 @@ def _prepare_benchmark_videos(
     *,
     target_duration_seconds: int,
     prepared_video_dir: str,
+    log_progress: bool = False,
 ) -> tuple[list[str], list[dict[str, Any]]]:
     if target_duration_seconds <= 0:
         return videos, []
@@ -299,6 +318,7 @@ def _prepare_benchmark_videos(
             video_path,
             target_duration_seconds=target_duration_seconds,
             output_dir=output_dir,
+            log_progress=log_progress,
         )
         prepared_videos.append(prepared_path)
         prepared_metadata.append(
