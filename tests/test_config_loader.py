@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 
-from cowbook.io.config_loader import load_config
+from cowbook.io.config_loader import (
+    load_config,
+    load_config_file,
+    normalize_config_mapping,
+    write_config_file,
+)
 
 
 def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
@@ -39,6 +44,21 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
     assert config["tracking_cleanup"]["nms_mode"] == "hybrid_nms"
 
 
+def test_normalize_config_mapping_applies_defaults_and_overrides():
+    config = normalize_config_mapping(
+        {
+            "video_groups": [[{"path": "videos/example.mp4", "camera_nr": "1"}]],
+            "fps": "12",
+        },
+        overrides={"run_name": "normalized"},
+    )
+
+    assert config["fps"] == 12
+    assert config["run_name"] == "normalized"
+    assert config["output_root"] == "var/runs/normalized"
+    assert config["video_groups"][0][0]["camera_nr"] == 1
+
+
 def test_load_config_applies_explicit_overrides(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -61,6 +81,18 @@ def test_load_config_applies_explicit_overrides(tmp_path):
     assert config["log_progress"] is True
 
 
+def test_load_config_file_matches_backward_compatible_loader(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]], "fps": 6})
+    )
+
+    legacy = load_config(str(config_path), overrides={"run_name": "legacy"})
+    explicit = load_config_file(str(config_path), overrides={"run_name": "legacy"})
+
+    assert explicit == legacy
+
+
 def test_load_config_derives_run_scoped_output_paths(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -80,6 +112,26 @@ def test_load_config_derives_run_scoped_output_paths(tmp_path):
     assert config["output_video_folder"] == "runtime/runs/experiment-01/videos"
     assert config["output_json_folder"] == "runtime/runs/experiment-01/json"
     assert config["masked_video_folder"] == "runtime/cache/masked_videos"
+
+
+def test_write_config_file_materializes_normalized_config(tmp_path):
+    output_path = tmp_path / "nested" / "materialized.json"
+
+    written_path = write_config_file(
+        {
+            "video_groups": [[{"path": "videos/example.mp4", "camera_nr": "1"}]],
+            "fps": "12",
+        },
+        str(output_path),
+        overrides={"run_name": "materialized"},
+    )
+
+    assert written_path == str(output_path)
+    saved = json.loads(output_path.read_text())
+    assert saved["fps"] == 12
+    assert saved["run_name"] == "materialized"
+    assert saved["output_root"] == "var/runs/materialized"
+    assert saved["video_groups"][0][0]["camera_nr"] == 1
 
 
 def test_load_config_rejects_duplicate_camera_numbers(tmp_path):

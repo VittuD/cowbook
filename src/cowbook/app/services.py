@@ -17,8 +17,11 @@ def _import_package_module(name: str):
 @dataclass(slots=True)
 class ConfigService:
     def load(self, config_path: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+        return self.load_file(config_path, overrides=overrides)
+
+    def load_file(self, config_path: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         module = _import_package_module("cowbook.io.config_loader")
-        return module.load_config(config_path, overrides=overrides)
+        return module.load_config_file(config_path, overrides=overrides)
 
     def normalize(
         self,
@@ -28,6 +31,15 @@ class ConfigService:
         module = _import_package_module("cowbook.io.config_loader")
         config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
         return module.normalize_config_mapping(config_mapping, overrides=overrides)
+
+    def materialize(
+        self,
+        config: PipelineConfig | dict[str, Any],
+        output_path: str,
+        overrides: dict[str, Any] | None = None,
+    ) -> str:
+        module = _import_package_module("cowbook.io.config_loader")
+        return module.write_config_file(config, output_path, overrides=overrides)
 
 
 @dataclass(slots=True)

@@ -13,7 +13,15 @@ python -m cowbook
 For non-CLI embedding, `cowbook` also exposes a small stable Python [runtime surface](docs/package-boundaries.md):
 
 ```python
-from cowbook import PipelineRunner, load_pipeline_config, run_pipeline
+from cowbook import (
+    PipelineRunner,
+    RunRequest,
+    load_pipeline_config,
+    load_pipeline_config_object,
+    materialize_pipeline_config,
+    run_pipeline,
+    run_pipeline_request,
+)
 ```
 
 ## Documentation
@@ -135,13 +143,31 @@ The stable import surface is the package root or [runtime.py](src/cowbook/runtim
 Example:
 
 ```python
-from cowbook import load_pipeline_config, run_pipeline
+from cowbook import (
+    RunRequest,
+    load_pipeline_config,
+    load_pipeline_config_object,
+    materialize_pipeline_config,
+    run_pipeline,
+    run_pipeline_request,
+)
 
 config = load_pipeline_config("configs/smoke.json")
 result = run_pipeline("configs/smoke.json")
+
+config_object = load_pipeline_config_object(
+    {
+        "model_path": "models/best.pt",
+        "video_groups": [[{"path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1}]],
+    }
+)
+
+request = RunRequest(config=config_object, overrides={"run_name": "demo"})
+result = run_pipeline_request(request)
+materialized = materialize_pipeline_config(config_object, "var/tmp/demo.json")
 ```
 
-Package-facing exports are `PipelineRunner`, `PipelineConfig`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, and `run_pipeline()`.
+Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker
 

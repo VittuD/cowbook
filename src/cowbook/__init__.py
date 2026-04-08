@@ -12,6 +12,7 @@ from cowbook.runtime import (
     RunRequest,
     load_pipeline_config,
     load_pipeline_config_object,
+    materialize_pipeline_config,
     run_pipeline,
     run_pipeline_request,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "RunRequest",
     "load_pipeline_config",
     "load_pipeline_config_object",
+    "materialize_pipeline_config",
     "run_pipeline",
     "run_pipeline_request",
 ]

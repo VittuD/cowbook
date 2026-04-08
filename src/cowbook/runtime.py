@@ -9,7 +9,11 @@ from cowbook.core.contracts import PipelineConfig, RunRequest
 from cowbook.execution.control import CancellationToken, JobCancelledError
 from cowbook.execution.models import JobArtifact, JobEvent, JobRun
 from cowbook.execution.observers import JobObserver
-from cowbook.io.config_loader import load_config, normalize_config_mapping
+from cowbook.io.config_loader import (
+    load_config_file,
+    normalize_config_mapping,
+    write_config_file,
+)
 
 
 def load_pipeline_config(
@@ -28,7 +32,7 @@ def load_pipeline_config(
     Raises:
         ValueError: If the config cannot be loaded or validated.
     """
-    config = load_config(config_path, overrides=overrides)
+    config = load_config_file(config_path, overrides=overrides)
     if not config:
         raise ValueError(f"Failed to load pipeline config from {config_path}")
     return PipelineConfig.from_mapping(config)
@@ -43,6 +47,16 @@ def load_pipeline_config_object(
     config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
     normalized = normalize_config_mapping(config_mapping, overrides=overrides)
     return PipelineConfig.from_mapping(normalized)
+
+
+def materialize_pipeline_config(
+    config: PipelineConfig | dict[str, Any],
+    output_path: str,
+    overrides: dict[str, Any] | None = None,
+) -> str:
+    """Write a normalized pipeline config to disk and return the destination path."""
+
+    return write_config_file(config, output_path, overrides=overrides)
 
 
 def run_pipeline(
@@ -107,6 +121,7 @@ __all__ = [
     "RunRequest",
     "load_pipeline_config",
     "load_pipeline_config_object",
+    "materialize_pipeline_config",
     "run_pipeline",
     "run_pipeline_request",
 ]

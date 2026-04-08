@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from cowbook.core.contracts import PipelineConfig
@@ -279,11 +280,13 @@ def normalize_config_mapping(
 
     return PipelineConfig.from_mapping(config).to_dict()
 
-def load_config(config_path, overrides=None):
-    """
-    Load configuration settings from a JSON file with error handling, defaults,
-    light normalization, and optional overrides (e.g., from CLI).
-    """
+
+def load_config_file(
+    config_path: str,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load, normalize, and validate a config file into Cowbook's runtime shape."""
+
     try:
         with open(config_path) as f:
             config = json.load(f)
@@ -292,3 +295,27 @@ def load_config(config_path, overrides=None):
     except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
         logger.error("Error loading config: %s", e)
         return {}
+
+
+def write_config_file(
+    config: PipelineConfig | dict[str, Any],
+    output_path: str,
+    overrides: dict[str, Any] | None = None,
+) -> str:
+    """Write a normalized config mapping to disk and return the output path."""
+
+    config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
+    normalized = normalize_config_mapping(config_mapping, overrides=overrides)
+
+    destination = Path(output_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n")
+    return str(destination)
+
+
+def load_config(config_path, overrides=None):
+    """
+    Backward-compatible wrapper for loading a config file.
+    """
+
+    return load_config_file(config_path, overrides=overrides)

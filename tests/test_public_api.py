@@ -14,6 +14,7 @@ def test_package_root_exposes_public_runtime_surface():
     assert callable(cowbook.run_pipeline_request)
     assert callable(cowbook.load_pipeline_config)
     assert callable(cowbook.load_pipeline_config_object)
+    assert callable(cowbook.materialize_pipeline_config)
     assert not hasattr(cowbook, "JobManagerService")
     assert not hasattr(cowbook, "create_job_manager")
 
@@ -99,3 +100,22 @@ def test_run_pipeline_request_helper_delegates_to_runner():
     assert result == {"ok": True}
     assert captured["request"] == request
     assert captured["kwargs"]["job_id"] == "job-2"
+
+
+def test_materialize_pipeline_config_writes_normalized_config(tmp_path):
+    output_path = tmp_path / "materialized.json"
+
+    written_path = runtime.materialize_pipeline_config(
+        {
+            "model_path": "models/test.pt",
+            "video_groups": [[{"path": "sample_data/videos/Ch1_60.mp4", "camera_nr": "1"}]],
+        },
+        str(output_path),
+        overrides={"run_name": "runtime_materialized"},
+    )
+
+    assert written_path == str(output_path)
+    saved = json.loads(output_path.read_text())
+    assert saved["run_name"] == "runtime_materialized"
+    assert saved["output_root"] == "var/runs/runtime_materialized"
+    assert saved["video_groups"][0][0]["camera_nr"] == 1
