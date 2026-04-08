@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import math
 import json
 import multiprocessing as mp
 import os
@@ -12,6 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+import cv2
 from ultralytics import YOLO
 from ultralytics.utils.ops import clean_str
 
@@ -190,33 +190,57 @@ def _query_gpu_info() -> list[str]:
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
-def _probe_duration_seconds(video_path: str) -> float:
-    completed = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            video_path,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(completed.stdout.strip())
+def _probe_video_metadata(video_path: str) -> dict[str, float | int]:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {video_path}")
+
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    finally:
+        capture.release()
+
+    if fps <= 0:
+        fps = 30.0
+
+    return {
+        "fps": fps,
+        "frame_count": frame_count,
+        "width": width,
+        "height": height,
+        "duration_s": (frame_count / fps) if fps > 0 and frame_count > 0 else 0.0,
+    }
 
 
-def _ensure_ffmpeg_available() -> None:
-    for tool_name in ("ffmpeg", "ffprobe"):
-        subprocess.run(
-            [tool_name, "-version"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+def _load_video_frames(video_path: str) -> tuple[list[Any], float, tuple[int, int]]:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {video_path}")
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = 30.0
+
+    frames: list[Any] = []
+    frame_size = (0, 0)
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            if frame_size == (0, 0):
+                frame_size = (int(frame.shape[1]), int(frame.shape[0]))
+            frames.append(frame)
+    finally:
+        capture.release()
+
+    if not frames:
+        raise ValueError(f"No frames read from video: {video_path}")
+
+    return frames, fps, frame_size
 
 
 def _build_extended_video(
@@ -230,41 +254,27 @@ def _build_extended_video(
     output_path = output_dir / f"{source_path.stem}_{target_duration_seconds}s{source_path.suffix}"
 
     if output_path.exists():
-        existing_duration = _probe_duration_seconds(str(output_path))
+        existing_duration = float(_probe_video_metadata(str(output_path))["duration_s"])
         if existing_duration >= float(target_duration_seconds) - 0.5:
             return str(output_path)
 
-    source_duration = _probe_duration_seconds(str(source_path))
-    if source_duration <= 0:
-        raise ValueError(f"Invalid source duration for {source_video}: {source_duration}")
+    frames, fps, frame_size = _load_video_frames(str(source_path))
+    target_frame_count = max(1, int(round(float(target_duration_seconds) * fps)))
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        frame_size,
+    )
+    if not writer.isOpened():
+        raise ValueError(f"Failed to open output video for writing: {output_path}")
 
-    repeat_count = max(1, math.ceil(target_duration_seconds / source_duration))
-    with tempfile.TemporaryDirectory(prefix="cowbook_ffmpeg_concat_") as tmpdir:
-        concat_file = Path(tmpdir) / "inputs.txt"
-        concat_file.write_text(
-            "".join(f"file '{source_path.resolve()}'\n" for _ in range(repeat_count)),
-            encoding="utf-8",
-        )
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-t",
-                str(target_duration_seconds),
-                "-c",
-                "copy",
-                str(output_path),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+    try:
+        for frame_idx in range(target_frame_count):
+            writer.write(frames[frame_idx % len(frames)])
+    finally:
+        writer.release()
+
     return str(output_path)
 
 
@@ -277,7 +287,6 @@ def _prepare_benchmark_videos(
     if target_duration_seconds <= 0:
         return videos, []
 
-    _ensure_ffmpeg_available()
     output_dir = Path(prepared_video_dir)
     prepared_videos: list[str] = []
     prepared_metadata: list[dict[str, Any]] = []
@@ -292,7 +301,7 @@ def _prepare_benchmark_videos(
             {
                 "source_video": video_path,
                 "prepared_video": prepared_path,
-                "prepared_duration_s": _probe_duration_seconds(prepared_path),
+                "prepared_duration_s": _probe_video_metadata(prepared_path)["duration_s"],
             }
         )
     return prepared_videos, prepared_metadata
