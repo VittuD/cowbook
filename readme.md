@@ -38,7 +38,7 @@ Build the static docs site:
 mkdocs build
 ```
 
-Stable documentation targets are the CLI entrypoint, the public package [runtime surface](docs/package-boundaries.md) in [runtime.py](/home/davide/Desktop/cowbook/src/cowbook/runtime.py), and the architecture and package-boundary guidance for the package itself.
+Stable documentation targets are the CLI entrypoint, the public package [runtime surface](docs/package-boundaries.md) in [runtime.py](src/cowbook/runtime.py), and the architecture and package-boundary guidance for the package itself.
 
 Deep internal modules are documented only when they become stable extension points.
 
