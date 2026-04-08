@@ -70,6 +70,8 @@ Deep internal modules are documented only when they become stable extension poin
 
 Directory intent is simple: `assets/` stores persistent non-code project assets such as calibration, masks, tracker config, and the barn background; `configs/` stores example run configs; `sample_data/` stores local inputs for smoke and full runs; `src/cowbook/` contains the packaged code; and `var/` is reserved for runtime outputs and cache data.
 
+The [`scripts/`](scripts) directory contains optional repository utilities. [`group_videos.sh`](scripts/group_videos.sh) is a helper for reorganizing flat raw camera drops into grouped `videos/<group>/ChX.mp4` directories before config creation.
+
 ## Install
 
 Runtime install:
@@ -231,6 +233,22 @@ Notes:
 - `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`
+- optional tracking cleanup lives under `tracking_cleanup`
+
+Optional tracking cleanup can preprocess detections before tracking, preserve detection lineage, prune short-lived tracks with a second tracking pass, and smooth final output boxes. It is off by default.
+
+Example cleanup block:
+
+```json
+"tracking_cleanup": {
+  "enabled": true,
+  "conf_threshold": 0.15,
+  "nms_mode": "hybrid_nms",
+  "two_pass_prune_short_tracks": true,
+  "min_track_length": 30,
+  "postprocess_smoothing": true
+}
+```
 
 ## Output Layout
 
