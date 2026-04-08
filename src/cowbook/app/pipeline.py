@@ -11,6 +11,7 @@ from cowbook.app.services import (
     MaskingService,
     VideoService,
 )
+from cowbook.core.contracts import PipelineConfig, RunRequest
 from cowbook.execution import (
     CancellationToken,
     CompositeObserver,
@@ -61,6 +62,41 @@ class PipelineRunner:
         Returns:
             A final :class:`cowbook.execution.models.JobRun` snapshot when available.
         """
+        return self.run_request(
+            RunRequest(config_path=config_path, overrides=dict(overrides or {})),
+            observer=observer,
+            job_id=job_id,
+            cancellation_token=cancellation_token,
+        )
+
+    def run_config(
+        self,
+        config: PipelineConfig | dict[str, object],
+        overrides: dict[str, object] | None = None,
+        *,
+        observer: JobObserver | None = None,
+        job_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> JobRun | None:
+        """Execute one pipeline run from an in-memory config object."""
+
+        return self.run_request(
+            RunRequest(config=config, overrides=dict(overrides or {})),
+            observer=observer,
+            job_id=job_id,
+            cancellation_token=cancellation_token,
+        )
+
+    def run_request(
+        self,
+        request: RunRequest,
+        *,
+        observer: JobObserver | None = None,
+        job_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> JobRun | None:
+        """Execute one pipeline run from a typed request."""
+
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -72,26 +108,31 @@ class PipelineRunner:
             observers.append(observer)
         reporter = JobReporter(
             job_id=job_id or new_job_id(),
-            config_path=config_path,
+            config_path=request.config_reference,
             observer=CompositeObserver(observers),
         )
         reporter.emit(
             "job_started",
             status="running",
             stage="config",
-            payload={"overrides": dict(overrides or {})},
+            payload={"overrides": dict(request.overrides)},
         )
         if self._cancel_if_requested(reporter, cancellation_token, stage="config"):
             return run_store.get(reporter.job_id)
 
-        config = self.config_service.load(config_path, overrides=overrides)
+        config: dict[str, object]
+        if request.config_path is not None:
+            config = self.config_service.load(request.config_path, overrides=request.overrides)
+        else:
+            assert request.config is not None
+            config = self.config_service.normalize(request.config, overrides=request.overrides)
         if not config:
-            logger.error("Failed to load config from %s", config_path)
+            logger.error("Failed to load config from %s", request.config_reference)
             reporter.emit(
                 "job_failed",
                 status="failed",
                 stage="config",
-                message=f"Failed to load config from {config_path}",
+                message=f"Failed to load config from {request.config_reference}",
                 payload={"error": "config_load_failed"},
             )
             return run_store.get(reporter.job_id)

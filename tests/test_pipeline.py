@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from cowbook.app.pipeline import PipelineRunner
+from cowbook.core.contracts import PipelineConfig, RunRequest
 from cowbook.execution import CancellationToken, InMemoryJobStore
 
 
@@ -8,9 +11,14 @@ class FakeConfigService:
     def __init__(self, config):
         self.config = config
         self.calls = []
+        self.normalize_calls = []
 
     def load(self, config_path, overrides=None):
         self.calls.append((config_path, overrides))
+        return self.config
+
+    def normalize(self, config, overrides=None):
+        self.normalize_calls.append((config, overrides))
         return self.config
 
 
@@ -186,3 +194,43 @@ def test_pipeline_runner_marks_job_cancelled_before_group_processing():
     assert snapshot.status == "cancelled"
     assert group_service.calls == []
     assert video_service.calls == []
+
+
+def test_pipeline_runner_can_run_request_from_in_memory_config():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    config_service = FakeConfigService(config)
+
+    snapshot = PipelineRunner(
+        config_service=config_service,
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run_request(
+        RunRequest(config=PipelineConfig.from_mapping(config), overrides={"fps": 9})
+    )
+
+    assert config_service.calls == []
+    assert len(config_service.normalize_calls) == 1
+    normalized_config, overrides = config_service.normalize_calls[0]
+    assert isinstance(normalized_config, PipelineConfig)
+    assert overrides == {"fps": 9}
+    assert snapshot is not None
+    assert snapshot.config_path == "<in-memory>"
+    assert snapshot.status == "completed"
+
+
+def test_run_request_requires_exactly_one_config_source():
+    with pytest.raises(ValueError):
+        RunRequest()
+
+    with pytest.raises(ValueError):
+        RunRequest(config_path="config.json", config={})

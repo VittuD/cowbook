@@ -365,3 +365,29 @@ class PipelineConfig:
             "masks": dict(self.masks),
             "camera_to_mask_map": dict(self.camera_to_mask_map),
         }
+
+
+@dataclass(slots=True)
+class RunRequest:
+    """Typed programmatic submission contract for one pipeline run."""
+
+    config_path: str | None = None
+    config: PipelineConfig | dict[str, Any] | None = None
+    overrides: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        has_path = self.config_path is not None
+        has_config = self.config is not None
+        if has_path == has_config:
+            raise ValueError("Exactly one of 'config_path' or 'config' must be provided.")
+        if self.config_path is not None:
+            self.config_path = str(self.config_path)
+        if self.config is not None and not isinstance(self.config, (PipelineConfig, dict)):
+            raise TypeError("'config' must be a PipelineConfig or a mapping.")
+        self.overrides = dict(self.overrides)
+
+    @property
+    def config_reference(self) -> str:
+        """Return a stable config label for job snapshots and events."""
+
+        return self.config_path or "<in-memory>"

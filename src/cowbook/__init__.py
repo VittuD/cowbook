@@ -9,8 +9,11 @@ from cowbook.runtime import (
     JobRun,
     PipelineConfig,
     PipelineRunner,
+    RunRequest,
     load_pipeline_config,
+    load_pipeline_config_object,
     run_pipeline,
+    run_pipeline_request,
 )
 
 __version__ = "0.1.0"
@@ -25,6 +28,9 @@ __all__ = [
     "JobRun",
     "PipelineConfig",
     "PipelineRunner",
+    "RunRequest",
     "load_pipeline_config",
+    "load_pipeline_config_object",
     "run_pipeline",
+    "run_pipeline_request",
 ]

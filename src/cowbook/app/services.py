@@ -4,6 +4,7 @@ import importlib
 from dataclasses import dataclass
 from typing import Any
 
+from cowbook.core.contracts import PipelineConfig
 from cowbook.core.runtime import ensure_repo_root_on_path
 from cowbook.execution import CancellationToken, JobReporter
 
@@ -18,6 +19,15 @@ class ConfigService:
     def load(self, config_path: str, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         module = _import_package_module("cowbook.io.config_loader")
         return module.load_config(config_path, overrides=overrides)
+
+    def normalize(
+        self,
+        config: PipelineConfig | dict[str, Any],
+        overrides: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        module = _import_package_module("cowbook.io.config_loader")
+        config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
+        return module.normalize_config_mapping(config_mapping, overrides=overrides)
 
 
 @dataclass(slots=True)
