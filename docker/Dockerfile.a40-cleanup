@@ -27,4 +27,4 @@ ENV HOME=/home/cowbook \
 USER cowbook
 
 ENTRYPOINT ["python", "-m", "cowbook.tools.benchmark_tracking_cleanup"]
-CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--extend-seconds", "300", "--tracking-concurrency", "1", "--prepared-video-dir", "/scratch/vet/var/benchmarks/prepared_videos_cleanup_300s", "--output-root", "/scratch/vet/var/benchmarks/tracking_cleanup_300s", "--save-tracking-video", "--create-projection-video"]
+CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--extend-seconds", "300", "--tracking-concurrency", "1", "--prepared-video-dir", "/scratch/vet/var/benchmarks/prepared_videos_cleanup_300s", "--output-root", "/scratch/vet/var/benchmarks/tracking_cleanup_300s", "--save-tracking-video", "--create-projection-video", "--log-progress"]
