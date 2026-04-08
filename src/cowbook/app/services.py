@@ -55,9 +55,15 @@ class DirectoryService:
 
 @dataclass(slots=True)
 class MaskingService:
-    def preprocess(self, config: dict[str, Any]):
+    def preprocess(
+        self,
+        config: dict[str, Any],
+        *,
+        reporter: JobReporter | None = None,
+        log_progress: bool = False,
+    ):
         module = _import_package_module("cowbook.vision.preprocess_video")
-        return module.preprocess_videos(config)
+        return module.preprocess_videos(config, reporter=reporter, log_progress=log_progress)
 
 
 @dataclass(slots=True)
@@ -88,6 +94,22 @@ class GroupProcessingService:
 
 @dataclass(slots=True)
 class VideoService:
-    def create_projection_video(self, image_folder: str, output_video_path: str, fps: int) -> None:
+    def create_projection_video(
+        self,
+        image_folder: str,
+        output_video_path: str,
+        fps: int,
+        *,
+        reporter: JobReporter | None = None,
+        group_idx: int | None = None,
+        log_progress: bool = False,
+    ) -> None:
         module = _import_package_module("cowbook.io.video_processor")
-        module.create_video_from_images(image_folder, output_video_path, fps)
+        module.create_video_from_images(
+            image_folder,
+            output_video_path,
+            fps,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=log_progress,
+        )

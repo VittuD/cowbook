@@ -317,6 +317,9 @@ def process_video_group(
             num_plot_workers=config.get("num_plot_workers", 0),
             output_image_format=config.get("output_image_format", "png"),
             cancellation_token=cancellation_token,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=bool(config.get("log_progress", False)),
         )
     except Exception as e:
         if isinstance(e, JobCancelledError):

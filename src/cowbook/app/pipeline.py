@@ -181,7 +181,11 @@ class PipelineRunner:
                 payload={"group_count": len(groups)},
             )
             try:
-                groups = self.masking_service.preprocess(config)
+                groups = self.masking_service.preprocess(
+                    config,
+                    reporter=reporter,
+                    log_progress=bool(config.get("log_progress", False)),
+                )
                 logger.info("Masked video groups prepared.")
                 reporter.emit(
                     "masking_completed",
@@ -257,7 +261,13 @@ class PipelineRunner:
                 payload={"path": output_video_path, "fps": fps},
             )
             try:
-                self.video_service.create_projection_video(output_image_folder, output_video_path, fps)
+                self.video_service.create_projection_video(
+                    output_image_folder,
+                    output_video_path,
+                    fps,
+                    reporter=reporter,
+                    log_progress=bool(config.get("log_progress", False)),
+                )
                 logger.info("Combined projection video generated successfully.")
                 reporter.artifact("projection_video", output_video_path)
                 reporter.emit(

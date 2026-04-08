@@ -6,7 +6,7 @@ import os
 
 from tqdm import tqdm
 
-from cowbook.execution import CancellationToken
+from cowbook.execution import CancellationToken, JobReporter, StageProgressReporter
 from cowbook.vision.calibration import (
     load_camera_setup,
     load_projection_context,
@@ -75,6 +75,9 @@ def process_and_save_frames(
     num_plot_workers=0,
     output_image_format="jpg",
     cancellation_token: CancellationToken | None = None,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    log_progress: bool = False,
 ):
     """
     Process detections from each of the JSON files, project centroids,
@@ -90,6 +93,16 @@ def process_and_save_frames(
     updated_json_file_paths = []
     processing_tasks = list(zip(json_file_paths, camera_nrs))
     process_workers = min(len(processing_tasks), os.cpu_count() or 1)
+    process_progress = StageProgressReporter(
+        event_prefix="processing",
+        reporter_stage="processing",
+        stage_name="process_centroids",
+        total=len(processing_tasks),
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+    )
+    process_progress.stage_started()
 
     if process_workers > 1:
         processed_by_input: dict[str, str] = {}
@@ -108,6 +121,7 @@ def process_and_save_frames(
                 try:
                     updated_json_file_path, _ = future.result()
                     processed_by_input[json_file_path] = updated_json_file_path
+                    process_progress.step_progress(len(processed_by_input), len(processing_tasks))
                     logger.info("Processed frame data saved to %s", updated_json_file_path)
                 except Exception as exc:
                     logger.exception(
@@ -137,6 +151,7 @@ def process_and_save_frames(
                 )
                 save_frame_data_json(frames_data, updated_json_file_path)
                 updated_json_file_paths.append(updated_json_file_path)
+                process_progress.step_progress(len(updated_json_file_paths), len(processing_tasks))
                 logger.info("Processed frame data saved to %s", updated_json_file_path)
             except Exception as exc:
                 logger.exception(
@@ -145,6 +160,7 @@ def process_and_save_frames(
                     camera_nr,
                     exc,
                 )
+    process_progress.stage_completed()
 
     # Plot combined projected centroids from multiple JSON files for each frame and save as images
     if updated_json_file_paths:
@@ -155,6 +171,9 @@ def process_and_save_frames(
             num_workers=num_plot_workers,
             image_format=output_image_format,
             cancellation_token=cancellation_token,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=log_progress,
         )
 
     # Return processed JSON paths so caller can merge them
@@ -214,6 +233,9 @@ def plot_combined_projected_centroids(
     num_workers=0,
     image_format="png",
     cancellation_token: CancellationToken | None = None,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    log_progress: bool = False,
 ):
     """
     Plot combined projected centroids from multiple JSON files for each frame and save as images.
@@ -246,15 +268,35 @@ def plot_combined_projected_centroids(
         frame_output_path = f"{base_filename}_frame_{frame_num_str}{ext}"
         items.append((frame_id, projected_centroids, frame_output_path, barn_image_path))
 
+    render_progress = StageProgressReporter(
+        event_prefix="processing",
+        reporter_stage="processing",
+        stage_name="render_frames",
+        path_value=base_filename,
+        path_key="base_filename",
+        total=len(items),
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+    )
+    render_progress.stage_started()
+
     # Execute work
     if num_workers and num_workers > 0:
         # Use processes (safe for OpenCV; each proc caches barn image once)
         with _fut.ProcessPoolExecutor(max_workers=num_workers) as ex:
-            list(ex.map(_render_frame_worker, items, chunksize=16))
+            future_map = {ex.submit(_render_frame_worker, item): idx for idx, item in enumerate(items, start=1)}
+            completed = 0
+            for future in _fut.as_completed(future_map):
+                if cancellation_token is not None:
+                    cancellation_token.raise_if_cancelled()
+                future.result()
+                completed += 1
+                render_progress.step_progress(completed, len(items))
     else:
         # Sequential fallback; still avoids reloading barn per frame
         barn_img = load_barn_image(barn_image_path)
-        for frame_id, projected_centroids, frame_output_path, _ in items:
+        for idx, (frame_id, projected_centroids, frame_output_path, _) in enumerate(items, start=1):
             render_projection_frame(
                 projected_centroids,
                 frame_id,
@@ -262,3 +304,5 @@ def plot_combined_projected_centroids(
                 barn_image_path=barn_image_path,
                 barn_image=barn_img,
             )
+            render_progress.step_progress(idx, len(items))
+    render_progress.stage_completed()

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+from concurrent.futures import Future
+
 import numpy as np
 
+from cowbook.execution import InMemoryJobStore, JobReporter
 from cowbook.vision.preprocess_video import (
     _derive_masked_path,
     _ensure_mask_size,
     _infer_channel_from_name,
+    preprocess_videos,
 )
 
 
@@ -35,3 +39,53 @@ def test_derive_masked_path_keeps_name_and_adds_source_hash(tmp_path):
     assert first.endswith(".mp4")
     assert second.endswith(".mp4")
     assert first != second
+
+
+def test_preprocess_videos_emits_masking_progress(monkeypatch, tmp_path):
+    class FakeExecutor:
+        def __init__(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, fn, *args, **kwargs):
+            future = Future()
+            future.set_result(fn(*args, **kwargs))
+            return future
+
+    def fake_process_one_video(src, dst, mask_path, strict_half_rule):
+        dst_path = tmp_path / dst.split("/")[-1]
+        dst_path.write_text("ok")
+        return (src, str(dst_path), True)
+
+    monkeypatch.setattr("cowbook.vision.preprocess_video._process_one_video", fake_process_one_video)
+    monkeypatch.setattr("cowbook.vision.preprocess_video.futures.ProcessPoolExecutor", FakeExecutor)
+
+    store = InMemoryJobStore()
+    reporter = JobReporter(job_id="job-mask", config_path="config.json", observer=store)
+
+    preprocess_videos(
+        {
+            "masked_video_folder": str(tmp_path / "masked"),
+            "video_groups": [
+                [{"path": "videos/a.mp4", "camera_nr": 1}],
+                [{"path": "videos/b.mp4", "camera_nr": 4}],
+            ],
+            "num_mask_workers": 2,
+        },
+        reporter=reporter,
+    )
+
+    snapshot = store.get("job-mask")
+    assert snapshot is not None
+    event_types = [event.event_type for event in snapshot.events]
+    assert event_types == [
+        "masking_stage_started",
+        "masking_stage_progress",
+        "masking_stage_progress",
+        "masking_stage_completed",
+    ]

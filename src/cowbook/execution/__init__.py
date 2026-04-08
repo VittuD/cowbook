@@ -7,7 +7,7 @@ from cowbook.execution.observers import (
     JobReporter,
     NullObserver,
 )
-from cowbook.execution.progress import TrackingProgressReporter
+from cowbook.execution.progress import StageProgressReporter, TrackingProgressReporter
 from cowbook.execution.results import RunResult, build_run_result
 
 __all__ = [
@@ -21,6 +21,7 @@ __all__ = [
     "JobReporter",
     "JobRun",
     "NullObserver",
+    "StageProgressReporter",
     "RunResult",
     "TrackingProgressReporter",
     "build_run_result",

@@ -40,8 +40,8 @@ class FakeMaskingService:
         self.groups = groups
         self.calls = []
 
-    def preprocess(self, config):
-        self.calls.append(config)
+    def preprocess(self, config, **kwargs):
+        self.calls.append((config, kwargs))
         return self.groups
 
 
@@ -59,8 +59,8 @@ class FakeVideoService:
     def __init__(self):
         self.calls = []
 
-    def create_projection_video(self, image_folder, output_video_path, fps):
-        self.calls.append((image_folder, output_video_path, fps))
+    def create_projection_video(self, image_folder, output_video_path, fps, **kwargs):
+        self.calls.append((image_folder, output_video_path, fps, kwargs))
 
 
 def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
@@ -91,7 +91,11 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
     assert directory_service.prepared == [config]
     assert directory_service.cleared == ["frames"]
     assert len(group_service.calls) == 1
-    assert video_service.calls == [("frames", "videos/projection.mp4", 6)]
+    assert len(video_service.calls) == 1
+    image_folder, output_video_path, fps, kwargs = video_service.calls[0]
+    assert (image_folder, output_video_path, fps) == ("frames", "videos/projection.mp4", 6)
+    assert kwargs["log_progress"] is False
+    assert kwargs["reporter"] is not None
     assert result is not None
     assert result.status == "completed"
     assert result.job_run.groups_total == 1
@@ -127,7 +131,11 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
         video_service=video_service,
     ).run("config.json")
 
-    assert masking_service.calls == [config]
+    assert len(masking_service.calls) == 1
+    masked_config, kwargs = masking_service.calls[0]
+    assert masked_config == config
+    assert kwargs["log_progress"] is False
+    assert kwargs["reporter"] is not None
     assert group_service.calls[0][0][1] == masked_groups[0]
     assert directory_service.cleared == ["frames", "frames"]
     assert result is not None

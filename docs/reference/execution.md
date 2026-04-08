@@ -31,6 +31,8 @@ pipeline. It does not schedule or persist jobs. It defines:
 
 ## Progress
 
+::: cowbook.execution.progress.StageProgressReporter
+
 ::: cowbook.execution.progress.TrackingProgressReporter
 
 ## Cancellation
