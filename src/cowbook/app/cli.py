@@ -11,7 +11,7 @@ CLI_OVERRIDE_FIELDS = (
     "output_video_filename",
     "output_image_format",
     "num_plot_workers",
-    "num_tracking_workers",
+    "tracking_concurrency",
     "create_projection_video",
     "clean_frames_after_video",
     "mask_videos",
@@ -41,9 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the number of workers used to render projection frames",
     )
     parser.add_argument(
-        "--num-tracking-workers",
+        "--tracking-concurrency",
+        dest="tracking_concurrency",
         type=int,
-        help="Override the number of tracking workers used for video inputs",
+        help="Override how many videos may be tracked concurrently within a group",
     )
     parser.add_argument(
         "--create-projection-video",

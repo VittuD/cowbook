@@ -145,21 +145,29 @@ def process_video_group(
 
     tracking_errors: List[str] = []
     if tasks:
-        max_workers = int(config.get("num_tracking_workers", 1))
-        if max_workers < 1:
-            max_workers = 1
+        requested_tracking_concurrency = int(config["tracking_concurrency"])
+        effective_tracking_concurrency = min(requested_tracking_concurrency, len(tasks))
 
-        logger.info("Launching %d tracking worker(s) for %d video(s)", max_workers, len(tasks))
+        logger.info(
+            "Launching tracking with requested concurrency %d and effective concurrency %d for %d video(s)",
+            requested_tracking_concurrency,
+            effective_tracking_concurrency,
+            len(tasks),
+        )
         if reporter is not None:
             reporter.emit(
                 "tracking_started",
                 stage="tracking",
                 group_idx=group_idx,
-                payload={"video_count": len(tasks), "worker_count": max_workers},
+                payload={
+                    "video_count": len(tasks),
+                    "requested_tracking_concurrency": requested_tracking_concurrency,
+                    "effective_tracking_concurrency": effective_tracking_concurrency,
+                },
             )
 
         ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=max_workers) as pool:
+        with ctx.Pool(processes=effective_tracking_concurrency) as pool:
             results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
         _raise_if_cancelled(cancellation_token)
 

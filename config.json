@@ -14,7 +14,7 @@
   "convert_to_csv": true,
   "fps": 6,
   "num_plot_workers": 8,
-  "num_tracking_workers": 1,
+  "tracking_concurrency": 1,
   "masks": {
     "Ch1": "assets/masks/combined_mask_ch1.png",
     "Ch4": "assets/masks/combined_mask_ch4.png",

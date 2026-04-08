@@ -216,7 +216,7 @@ Minimal example:
   "clean_frames_after_video": false,
   "convert_to_csv": true,
   "num_plot_workers": 0,
-  "num_tracking_workers": 1,
+  "tracking_concurrency": 1,
   "video_groups": [
     [
       { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 }
@@ -228,7 +228,7 @@ Minimal example:
 Notes:
 
 - input paths may be videos or precomputed tracking JSON files
-- `num_tracking_workers` defaults to `1` intentionally to avoid GPU contention
+- `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`
 
@@ -328,7 +328,7 @@ Included examples:
 
 - Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
-- `num_tracking_workers > 1` can increase GPU memory pressure significantly.
+- `tracking_concurrency > 1` can increase GPU memory pressure significantly.
 - Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json).
 - YOLO API behavior can drift across `ultralytics` releases.
 

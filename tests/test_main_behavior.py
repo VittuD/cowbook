@@ -51,7 +51,7 @@ def _build_json_smoke_config(tmp_path: Path, input_json: Path, clean_frames: boo
         "convert_to_csv": True,
         "fps": 6,
         "num_plot_workers": 0,
-        "num_tracking_workers": 1,
+        "tracking_concurrency": 1,
         "video_groups": [[{"path": str(input_json), "camera_nr": 1}]],
     }
     path = tmp_path / "config.json"
@@ -123,7 +123,7 @@ def test_main_video_input_pipeline_works_with_stubbed_tracking(fixtures_dir: Pat
         "convert_to_csv": True,
         "fps": 6,
         "num_plot_workers": 0,
-        "num_tracking_workers": 1,
+        "tracking_concurrency": 1,
         "video_groups": [[{"path": str(input_video), "camera_nr": 1}]],
     }
     config_path = tmp_path / "video_config.json"

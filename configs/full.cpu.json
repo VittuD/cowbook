@@ -17,7 +17,7 @@
   "create_projection_video": true,
   "clean_frames_after_video": false,
   "convert_to_csv": true,
-  "num_tracking_workers": 1,
+  "tracking_concurrency": 1,
   "num_plot_workers": 0,
   "output_image_format": "jpg",
   "output_video_filename": "full_projection_cpu.mp4"

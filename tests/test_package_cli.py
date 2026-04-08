@@ -34,7 +34,7 @@ def test_cli_resolves_supported_overrides():
             "png",
             "--num-plot-workers",
             "3",
-            "--num-tracking-workers",
+            "--tracking-concurrency",
             "2",
             "--no-create-projection-video",
             "--no-clean-frames-after-video",
@@ -47,11 +47,20 @@ def test_cli_resolves_supported_overrides():
         "output_video_filename": "demo.mp4",
         "output_image_format": "png",
         "num_plot_workers": 3,
-        "num_tracking_workers": 2,
+        "tracking_concurrency": 2,
         "create_projection_video": False,
         "clean_frames_after_video": False,
         "mask_videos": True,
     }
+
+
+def test_cli_rejects_legacy_tracking_worker_flag():
+    try:
+        cli.parse_args(["--num-tracking-workers", "2"])
+    except SystemExit as exc:
+        assert exc.code == 2
+    else:  # pragma: no cover
+        raise AssertionError("Expected parse_args() to reject the legacy flag.")
 
 
 def test_cli_main_delegates_to_pipeline_runner(monkeypatch):

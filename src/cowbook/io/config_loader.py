@@ -10,6 +10,16 @@ from cowbook.vision.calibration import default_calibration_file
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_positive_int(config: dict, key: str) -> None:
+    try:
+        value = int(config[key])
+    except Exception as e:
+        raise ValueError(f"'{key}' must be a positive integer (got {config.get(key)!r}).") from e
+    if value < 1:
+        raise ValueError(f"'{key}' must be >= 1 (got {value!r}).")
+    config[key] = value
+
 def load_config(config_path, overrides=None):
     """
     Load configuration settings from a JSON file with error handling, defaults,
@@ -37,8 +47,8 @@ def load_config(config_path, overrides=None):
         config.setdefault("convert_to_csv", True)
         # Clean-up frames after assembling the video (default ON)
         config.setdefault("clean_frames_after_video", True)
-        # Tracking workers (default to 1 to avoid GPU OOM)
-        config.setdefault("num_tracking_workers", 1)
+        # Tracking concurrency (default to 1 to avoid GPU contention)
+        config.setdefault("tracking_concurrency", 1)
         # ---- Masking at inference ----
         config.setdefault("mask_videos", False)
         config.setdefault("num_mask_workers", max(1, os.cpu_count() - 1) if hasattr(os, 'cpu_count') else 0)
@@ -55,6 +65,11 @@ def load_config(config_path, overrides=None):
         # Example: {"1":"Ch1","4":"Ch4","6":"Ch6","8":"Ch8"}
         config.setdefault("camera_to_mask_map", {})
 
+        if "num_tracking_workers" in config:
+            raise ValueError(
+                "'num_tracking_workers' is no longer supported. Use 'tracking_concurrency' instead."
+            )
+
         # ---- Apply optional overrides (from CLI or caller) ----
         if overrides:
             for k, v in overrides.items():
@@ -67,6 +82,8 @@ def load_config(config_path, overrides=None):
             config["fps"] = int(config["fps"])
         except Exception as e:
             raise ValueError(f"'fps' must be an integer (got {config.get('fps')!r}).") from e
+
+        _normalize_positive_int(config, "tracking_concurrency")
 
         # image format normalized
         fmt = str(config.get("output_image_format", "jpg")).lower()

@@ -23,7 +23,7 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
     assert config["output_image_format"] == "jpg"
     assert config["save_tracking_video"] is False
     assert config["create_projection_video"] is True
-    assert config["num_tracking_workers"] == 1
+    assert config["tracking_concurrency"] == 1
     assert config["mask_videos"] is False
     assert config["video_groups"][0][0]["camera_nr"] == 1
     assert config["runtime_root"] == "var"
@@ -100,6 +100,34 @@ def test_load_config_rejects_invalid_image_format(tmp_path):
             {
                 "video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]],
                 "output_image_format": "bmp",
+            }
+        )
+    )
+
+    assert load_config(str(config_path)) == {}
+
+
+def test_load_config_rejects_legacy_num_tracking_workers_field(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]],
+                "num_tracking_workers": 2,
+            }
+        )
+    )
+
+    assert load_config(str(config_path)) == {}
+
+
+def test_load_config_rejects_non_positive_tracking_concurrency(tmp_path):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]],
+                "tracking_concurrency": 0,
             }
         )
     )

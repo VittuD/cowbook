@@ -38,7 +38,7 @@ def test_json_input_smoke_pipeline_generates_outputs(fixtures_dir: Path, tmp_pat
         "convert_to_csv": True,
         "fps": 6,
         "num_plot_workers": 0,
-        "num_tracking_workers": 1,
+        "tracking_concurrency": 1,
         "video_groups": [
             [
                 {

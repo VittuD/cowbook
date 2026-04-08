@@ -158,7 +158,7 @@ class PipelineConfig:
     output_video_filename: str = "combined_projection.mp4"
     convert_to_csv: bool = True
     clean_frames_after_video: bool = True
-    num_tracking_workers: int = 1
+    tracking_concurrency: int = 1
     mask_videos: bool = False
     masked_video_folder: str = "var/cache/masked_videos"
     num_mask_workers: int = 0
@@ -192,7 +192,7 @@ class PipelineConfig:
             output_video_filename=str(data.get("output_video_filename", "combined_projection.mp4")),
             convert_to_csv=bool(data.get("convert_to_csv", True)),
             clean_frames_after_video=bool(data.get("clean_frames_after_video", True)),
-            num_tracking_workers=int(data.get("num_tracking_workers", 1)),
+            tracking_concurrency=int(data.get("tracking_concurrency", 1)),
             mask_videos=bool(data.get("mask_videos", False)),
             masked_video_folder=str(data.get("masked_video_folder", "var/cache/masked_videos")),
             num_mask_workers=int(data.get("num_mask_workers", 0)),
@@ -222,7 +222,7 @@ class PipelineConfig:
             "output_video_filename": self.output_video_filename,
             "convert_to_csv": self.convert_to_csv,
             "clean_frames_after_video": self.clean_frames_after_video,
-            "num_tracking_workers": self.num_tracking_workers,
+            "tracking_concurrency": self.tracking_concurrency,
             "mask_videos": self.mask_videos,
             "masked_video_folder": self.masked_video_folder,
             "num_mask_workers": self.num_mask_workers,

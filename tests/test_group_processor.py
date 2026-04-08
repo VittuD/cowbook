@@ -80,7 +80,7 @@ def test_process_video_group_keeps_surviving_cameras_aligned_when_one_tracking_f
         "convert_to_csv": False,
         "num_plot_workers": 0,
         "output_image_format": "jpg",
-        "num_tracking_workers": 2,
+        "tracking_concurrency": 2,
     }
     first_json = output_json_folder / "cam1_tracking.json"
     processed_first = str(first_json).replace(".json", "_processed.json")
@@ -139,3 +139,82 @@ def test_process_video_group_keeps_surviving_cameras_aligned_when_one_tracking_f
     assert merged_json_path.endswith("group_1_merged_processed.json")
     assert merge_calls["input_files"] == [processed_first]
     assert merge_calls["camera_nrs"] == [1]
+
+
+def test_process_video_group_reports_requested_and_effective_tracking_concurrency(
+    tmp_path, monkeypatch
+):
+    output_json_folder = tmp_path / "output_json"
+    output_image_folder = tmp_path / "output_frames"
+    output_json_folder.mkdir()
+    output_image_folder.mkdir()
+
+    config = {
+        "model_path": "models/yolov11_best.pt",
+        "calibration_file": "assets/calibration/calibration_matrix.json",
+        "save_tracking_video": False,
+        "convert_to_csv": False,
+        "num_plot_workers": 0,
+        "output_image_format": "jpg",
+        "tracking_concurrency": 4,
+    }
+
+    first_json = output_json_folder / "cam1_tracking.json"
+    second_json = output_json_folder / "cam4_tracking.json"
+
+    class FakePool:
+        def __init__(self, processes):
+            self.processes = processes
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def starmap(self, func, tasks):
+            assert self.processes == 2
+            return [
+                (str(first_json), None),
+                (str(second_json), None),
+            ]
+
+    monkeypatch.setattr(
+        package_group_processor,
+        "mp",
+        SimpleNamespace(
+            get_context=lambda _name: SimpleNamespace(Pool=lambda processes: FakePool(processes))
+        ),
+    )
+    monkeypatch.setattr(
+        package_group_processor,
+        "process_and_save_frames",
+        lambda json_paths, camera_nrs, *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(package_group_processor, "merge_json_files", lambda *args, **kwargs: None)
+
+    events = []
+
+    class Reporter:
+        def emit(self, event_type, **kwargs):
+            events.append((event_type, kwargs))
+
+        def artifact(self, *_args, **_kwargs):
+            return None
+
+    process_video_group(
+        group_idx=1,
+        video_group=[
+            {"path": "cam1.mp4", "camera_nr": 1},
+            {"path": "cam4.mp4", "camera_nr": 4},
+        ],
+        model_ref=config["model_path"],
+        config=config,
+        output_json_folder=str(output_json_folder),
+        output_image_folder=str(output_image_folder),
+        reporter=Reporter(),
+    )
+
+    tracking_started = next(kwargs for event_type, kwargs in events if event_type == "tracking_started")
+    assert tracking_started["payload"]["requested_tracking_concurrency"] == 4
+    assert tracking_started["payload"]["effective_tracking_concurrency"] == 2
