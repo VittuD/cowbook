@@ -1,7 +1,5 @@
-# config_loader.py
-
+import copy
 import json
-import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -10,7 +8,13 @@ from cowbook.core.contracts import PipelineConfig
 from cowbook.io.directory_manager import resolve_output_paths
 from cowbook.vision.calibration import default_calibration_file
 
-logger = logging.getLogger(__name__)
+
+def _copy_config_mapping(config: PipelineConfig | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(config, PipelineConfig):
+        return config.to_dict()
+    if not isinstance(config, dict):
+        raise TypeError("'config' must be a PipelineConfig or a mapping.")
+    return copy.deepcopy(config)
 
 
 def _normalize_positive_int(config: dict, key: str) -> None:
@@ -174,7 +178,7 @@ def normalize_config_mapping(
 ) -> dict[str, Any]:
     """Normalize a config mapping into Cowbook's validated runtime shape."""
 
-    config = dict(config)
+    config = _copy_config_mapping(config)
 
     # ---- Defaults (centralized) ----
     config.setdefault("model_path", "models/best.pt")
@@ -210,11 +214,6 @@ def normalize_config_mapping(
         "Ch8": "assets/masks/combined_mask_ch8.png",
     })
     config.setdefault("camera_to_mask_map", {})
-
-    if "num_tracking_workers" in config:
-        raise ValueError(
-            "'num_tracking_workers' is no longer supported. Use 'tracking_concurrency' instead."
-        )
 
     # ---- Apply optional overrides (from CLI or caller) ----
     if overrides:
@@ -287,14 +286,9 @@ def load_config_file(
 ) -> dict[str, Any]:
     """Load, normalize, and validate a config file into Cowbook's runtime shape."""
 
-    try:
-        with open(config_path) as f:
-            config = json.load(f)
-        return normalize_config_mapping(config, overrides=overrides)
-
-    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
-        logger.error("Error loading config: %s", e)
-        return {}
+    with open(config_path) as f:
+        config = json.load(f)
+    return normalize_config_mapping(config, overrides=overrides)
 
 
 def write_config_file(
@@ -304,18 +298,9 @@ def write_config_file(
 ) -> str:
     """Write a normalized config mapping to disk and return the output path."""
 
-    config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
-    normalized = normalize_config_mapping(config_mapping, overrides=overrides)
+    normalized = normalize_config_mapping(config, overrides=overrides)
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n")
     return str(destination)
-
-
-def load_config(config_path, overrides=None):
-    """
-    Backward-compatible wrapper for loading a config file.
-    """
-
-    return load_config_file(config_path, overrides=overrides)

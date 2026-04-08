@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -130,11 +131,22 @@ class PipelineRunner:
 
         resolved_config: PipelineConfig | None = None
         config: dict[str, object]
-        if request.config_path is not None:
-            config = self.config_service.load(request.config_path, overrides=request.overrides)
-        else:
-            assert request.config is not None
-            config = self.config_service.normalize(request.config, overrides=request.overrides)
+        try:
+            if request.config_path is not None:
+                config = self.config_service.load(request.config_path, overrides=request.overrides)
+            else:
+                assert request.config is not None
+                config = self.config_service.normalize(request.config, overrides=request.overrides)
+        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.error("Failed to load config from %s: %s", request.config_reference, exc)
+            reporter.emit(
+                "job_failed",
+                status="failed",
+                stage="config",
+                message=f"Failed to load config from {request.config_reference}",
+                payload={"error_code": CONFIG_LOAD_FAILED, "error_detail": str(exc)},
+            )
+            return self._build_result(run_store.get(reporter.job_id))
         if not config:
             logger.error("Failed to load config from %s", request.config_reference)
             reporter.emit(

@@ -29,8 +29,7 @@ class ConfigService:
         overrides: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         module = _import_package_module("cowbook.io.config_loader")
-        config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
-        return module.normalize_config_mapping(config_mapping, overrides=overrides)
+        return module.normalize_config_mapping(config, overrides=overrides)
 
     def materialize(
         self,

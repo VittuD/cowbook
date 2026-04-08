@@ -170,6 +170,8 @@ materialized = materialize_pipeline_config(config_object, "var/tmp/demo.json")
 
 Request-based runtime entrypoints return a normalized `RunResult`, which wraps the underlying `JobRun` plus summarized artifact paths.
 
+Config loading is strict: file-based loading raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and both file-based and in-memory config normalization raise `ValueError` for invalid runtime values. In-memory config loading does not mutate the caller-provided object.
+
 Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker

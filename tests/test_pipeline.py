@@ -269,6 +269,28 @@ def test_pipeline_runner_emits_error_code_for_config_failure():
     assert payload["error_code"] == "config_load_failed"
 
 
+def test_pipeline_runner_captures_config_loader_error_details():
+    class RaisingConfigService(FakeConfigService):
+        def load(self, config_path, overrides=None):
+            raise ValueError("bad config")
+
+    observer = InMemoryJobStore()
+
+    result = PipelineRunner(
+        config_service=RaisingConfigService({}),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-config-error")
+
+    assert result is not None
+    event = observer.get("job-config-error").events[-1]
+    assert event.event_type == "job_failed"
+    assert event.payload["error_code"] == "config_load_failed"
+    assert event.payload["error_detail"] == "bad config"
+
+
 def test_pipeline_runner_emits_error_code_for_masking_failure():
     class FailingMaskingService(FakeMaskingService):
         def preprocess(self, config, **kwargs):

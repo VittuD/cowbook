@@ -30,6 +30,8 @@ from cowbook import load_pipeline_config
 config = load_pipeline_config("configs/smoke.json", overrides={"run_name": "demo"})
 ```
 
+`load_pipeline_config(...)` raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and `ValueError` for invalid runtime config values.
+
 Validated typed config from an in-memory object:
 
 ```python
@@ -43,6 +45,8 @@ config = load_pipeline_config_object(
     overrides={"run_name": "demo"},
 )
 ```
+
+`load_pipeline_config_object(...)` applies the same runtime validation rules and does not mutate the input object.
 
 Typed programmatic submission:
 

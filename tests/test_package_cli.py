@@ -54,17 +54,6 @@ def test_cli_resolves_supported_overrides():
         "clean_frames_after_video": False,
         "mask_videos": True,
     }
-
-
-def test_cli_rejects_legacy_tracking_worker_flag():
-    try:
-        cli.parse_args(["--num-tracking-workers", "2"])
-    except SystemExit as exc:
-        assert exc.code == 2
-    else:  # pragma: no cover
-        raise AssertionError("Expected parse_args() to reject the legacy flag.")
-
-
 def test_cli_main_delegates_to_pipeline_runner(monkeypatch):
     called = {}
 

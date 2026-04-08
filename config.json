@@ -1,33 +1,6 @@
 {
   "model_path": "models/yolov11_best.pt",
   "calibration_file": "assets/calibration/camera_system.json",
-  "runtime_root": "var",
-  "run_name": "default",
-  "mask_videos": false,
-  "num_mask_workers": 4,
-  "mask_strict_half_rule": true,
-  "output_video_filename": "combined_projection.mp4",
-  "output_image_format": "jpg",
-  "save_tracking_video": false,
-  "create_projection_video": true,
-  "clean_frames_after_video": true,
-  "convert_to_csv": true,
-  "fps": 6,
-  "num_plot_workers": 8,
-  "tracking_concurrency": 1,
-  "masks": {
-    "Ch1": "assets/masks/combined_mask_ch1.png",
-    "Ch4": "assets/masks/combined_mask_ch4.png",
-    "Ch6": "assets/masks/combined_mask_ch6.png",
-    "Ch8": "assets/masks/combined_mask_ch8.png"
-  },
-
-  "camera_to_mask_map": {
-    "1": "Ch1",
-    "4": "Ch4",
-    "6": "Ch6",
-    "8": "Ch8"
-  },
   "video_groups": [
     [
       { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 },
@@ -35,5 +8,14 @@
       { "path": "sample_data/videos/Ch6_60.mp4", "camera_nr": 6 },
       { "path": "sample_data/videos/Ch8_60.mp4", "camera_nr": 8 }
     ]
-  ]
+  ],
+  "runtime_root": "var",
+  "run_name": "default",
+  "fps": 6,
+  "mask_videos": false,
+  "create_projection_video": true,
+  "clean_frames_after_video": true,
+  "convert_to_csv": true,
+  "tracking_concurrency": 1,
+  "output_video_filename": "combined_projection.mp4"
 }

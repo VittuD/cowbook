@@ -30,6 +30,13 @@ Minimal example:
 
 Input paths may be either videos or precomputed tracking JSON files. `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention. It caps how many video inputs in a group may be tracked at the same time and is clamped to the number of trackable videos in that group. `log_progress` is off by default and only affects human-readable console output. If masking is enabled, masks default to files under `assets/masks`, and masked-video reuse is cached under `var/cache/masked_videos`.
 
+Config loading is strict:
+
+- file-based loading raises `FileNotFoundError` for missing files
+- file-based loading raises `json.JSONDecodeError` for invalid JSON
+- file-based and in-memory normalization raise `ValueError` for invalid config values
+- in-memory config loading does not mutate the caller-provided object
+
 Optional `tracking_cleanup` adds an alternate tracking path that:
 
 - preprocesses detections before tracking
