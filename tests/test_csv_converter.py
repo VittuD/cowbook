@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from cowbook.io.csv_converter import _fieldnames, _iter_rows_from_json
+import csv
+import shutil
+from pathlib import Path
+
+from cowbook.io.csv_converter import _fieldnames, _iter_rows_from_json, json_to_csv
 
 
 def test_iter_rows_from_raw_json_computes_centroids_without_projection(raw_tracking_doc):
@@ -30,3 +34,14 @@ def test_iter_rows_from_processed_json_preserves_projected_centroids(processed_t
 def test_fieldnames_include_source_only_when_requested():
     assert "source" not in _fieldnames(include_source=False)
     assert _fieldnames(include_source=True)[0] == "source"
+
+
+def test_json_to_csv_writes_sibling_csv(fixtures_dir: Path, tmp_path: Path):
+    processed_json = tmp_path / "processed.json"
+    shutil.copyfile(fixtures_dir / "processed_tracking_minimal.json", processed_json)
+
+    csv_path = json_to_csv(str(processed_json))
+
+    assert csv_path == str(processed_json.with_suffix(".csv"))
+    rows = list(csv.DictReader(processed_json.with_suffix(".csv").open()))
+    assert len(rows) == 2

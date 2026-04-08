@@ -121,6 +121,21 @@ def _write_csv(
             writer.writerow(r)
 
 
+def json_to_csv(json_path: str) -> str | None:
+    """Convert one tracking JSON file to a sibling CSV file."""
+
+    csv_path = os.path.splitext(json_path)[0] + ".csv"
+
+    try:
+        doc = _load_json(json_path)
+        _write_csv(_iter_rows_from_json(doc, source_tag=None), csv_path, include_source=False)
+        logger.info("Wrote CSV: %s", csv_path)
+        return csv_path
+    except Exception as e:
+        logger.exception("Failed converting %s to CSV: %s", json_path, e)
+        return None
+
+
 # --------- CLI ---------
 
 def _parse_args() -> argparse.Namespace:

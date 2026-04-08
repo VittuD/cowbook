@@ -92,7 +92,7 @@ def test_process_video_group_emits_merge_failed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(group_processor_module, "process_and_save_frames", lambda *args, **kwargs: [str(processed_json)])
     monkeypatch.setattr(group_processor_module, "merge_json_files", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("merge boom")))
-    monkeypatch.setattr(group_processor_module, "_json_to_csv", lambda _path: None)
+    monkeypatch.setattr(group_processor_module, "json_to_csv", lambda _path: None)
 
     store = InMemoryJobStore()
     reporter = JobReporter(job_id="job-merge-fail", config_path="config.json", observer=store)
@@ -129,7 +129,7 @@ def test_process_video_group_propagates_cancellation_during_export(monkeypatch, 
     monkeypatch.setattr(group_processor_module, "process_and_save_frames", lambda *args, **kwargs: [str(processed_json)])
     monkeypatch.setattr(group_processor_module, "merge_json_files", lambda *args, **kwargs: None)
     monkeypatch.setattr(group_processor_module.os.path, "exists", lambda path: True)
-    monkeypatch.setattr(group_processor_module, "_json_to_csv", lambda _path: "out.csv")
+    monkeypatch.setattr(group_processor_module, "json_to_csv", lambda _path: "out.csv")
 
     class FakeCancellationToken:
         def __init__(self):
