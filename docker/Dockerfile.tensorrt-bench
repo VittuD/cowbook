@@ -27,4 +27,4 @@ ENV HOME=/home/cowbook \
 USER cowbook
 
 ENTRYPOINT ["python", "-m", "tools.benchmark_tensorrt_concurrency"]
-CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--concurrency-values", "1", "2", "3", "4", "--imgsz", "448", "768", "--repeat", "1", "--warmup-runs", "1", "--export-dir", "/scratch/vet/var/benchmarks/model_exports", "--prepared-video-dir", "/scratch/vet/var/benchmarks/prepared_videos_tensorrt", "--output", "/scratch/vet/var/benchmarks/tensorrt_concurrency_1_4.json", "--log-progress"]
+CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--concurrency-values", "1", "2", "3", "4", "--extend-seconds", "300", "--imgsz", "448", "768", "--repeat", "1", "--warmup-runs", "1", "--export-dir", "/scratch/vet/var/benchmarks/model_exports", "--prepared-video-dir", "/scratch/vet/var/benchmarks/prepared_videos_tensorrt_300s", "--output", "/scratch/vet/var/benchmarks/tensorrt_concurrency_300s_1_4.json", "--log-progress"]
