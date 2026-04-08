@@ -18,7 +18,7 @@ from cowbook import PipelineRunner, load_pipeline_config, run_pipeline
 
 ## Documentation
 
-The package documentation is organized as a MkDocs site under [docs](/home/davide/Desktop/cowbook/docs).
+The package documentation is organized as a MkDocs site under [docs](docs).
 
 Install docs tooling only:
 
@@ -127,7 +127,7 @@ Supported overrides are intentionally small: frame rate, output filename, output
 
 `cowbook` is usable in two ways: as a standalone CLI/engine, and as a Python package imported directly.
 
-The stable import surface is the package root or [runtime.py](/home/davide/Desktop/cowbook/src/cowbook/runtime.py), not deep internal modules.
+The stable import surface is the package root or [runtime.py](src/cowbook/runtime.py), not deep internal modules.
 
 Example:
 
@@ -295,7 +295,7 @@ Current shape:
 - stage events such as config, masking, tracking, processing, merge, export, and video
 - artifact events for generated JSON, CSV, directories, and videos
 
-This is implemented under [src/cowbook/execution](/home/davide/Desktop/cowbook/src/cowbook/execution).
+This is implemented under [src/cowbook/execution](src/cowbook/execution).
 
 Design intent:
 
@@ -307,10 +307,10 @@ Design intent:
 
 Important asset locations:
 
-- calibration: [assets/calibration](/home/davide/Desktop/cowbook/assets/calibration)
-- masks: [assets/masks](/home/davide/Desktop/cowbook/assets/masks)
-- tracker config: [assets/trackers/cows_botsort.yaml](/home/davide/Desktop/cowbook/assets/trackers/cows_botsort.yaml)
-- barn background: [assets/images/barn.png](/home/davide/Desktop/cowbook/assets/images/barn.png)
+- calibration: [assets/calibration](assets/calibration)
+- masks: [assets/masks](assets/masks)
+- tracker config: [assets/trackers/cows_botsort.yaml](assets/trackers/cows_botsort.yaml)
+- barn background: [assets/images/barn.png](assets/images/barn.png)
 
 If `assets/images/barn.png` is missing, frame rendering falls back to a blank background.
 
@@ -318,18 +318,18 @@ If `assets/images/barn.png` is missing, frame rendering falls back to a blank ba
 
 Included examples:
 
-- [config.json](/home/davide/Desktop/cowbook/config.json): default local run config
-- [configs/smoke.json](/home/davide/Desktop/cowbook/configs/smoke.json): small CPU smoke run
-- [configs/smoke.gpu.json](/home/davide/Desktop/cowbook/configs/smoke.gpu.json): small GPU smoke run
-- [configs/full.cpu.json](/home/davide/Desktop/cowbook/configs/full.cpu.json): full sample CPU run
-- [configs/full.gpu.json](/home/davide/Desktop/cowbook/configs/full.gpu.json): full sample GPU run
+- [config.json](config.json): default local run config
+- [configs/smoke.json](configs/smoke.json): small CPU smoke run
+- [configs/smoke.gpu.json](configs/smoke.gpu.json): small GPU smoke run
+- [configs/full.cpu.json](configs/full.cpu.json): full sample CPU run
+- [configs/full.gpu.json](configs/full.gpu.json): full sample GPU run
 
 ## Caveats
 
 - Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
 - `num_tracking_workers > 1` can increase GPU memory pressure significantly.
-- Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](/home/davide/Desktop/cowbook/src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](/home/davide/Desktop/cowbook/assets/calibration/camera_correspondences.json).
+- Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json).
 - YOLO API behavior can drift across `ultralytics` releases.
 
 ## Development
@@ -345,4 +345,4 @@ The repo currently has a passing baseline regression suite around config loading
 
 ## License
 
-GPL-3.0. See [LICENSE](/home/davide/Desktop/cowbook/LICENSE).
+GPL-3.0. See [LICENSE](LICENSE).
