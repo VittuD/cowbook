@@ -8,7 +8,14 @@ import time
 from queue import Empty
 from typing import List, Tuple
 
-from cowbook.execution import CancellationToken, JobCancelledError, JobReporter
+from cowbook.execution import (
+    MERGE_FAILED,
+    PROCESSING_FAILED,
+    TRACKING_FAILED,
+    CancellationToken,
+    JobCancelledError,
+    JobReporter,
+)
 from cowbook.io.json_merger import merge_json_files
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
@@ -284,7 +291,11 @@ def process_video_group(
                     stage="tracking",
                     group_idx=group_idx,
                     message="One or more tracking jobs failed.",
-                    payload={"error": "; ".join(tracking_errors), "failure_count": len(tracking_errors)},
+                    payload={
+                        "error_code": TRACKING_FAILED,
+                        "error_detail": "; ".join(tracking_errors),
+                        "failure_count": len(tracking_errors),
+                    },
                 )
     elif reporter is not None:
         reporter.emit(
@@ -332,7 +343,7 @@ def process_video_group(
                 stage="processing",
                 group_idx=group_idx,
                 message=f"Frame processing failed for group {group_idx}.",
-                payload={"error": str(e)},
+                payload={"error_code": PROCESSING_FAILED, "error_detail": str(e)},
             )
 
     processed_camera_nrs = [
@@ -405,7 +416,11 @@ def process_video_group(
                 stage="merge",
                 group_idx=group_idx,
                 message=f"Merging processed JSONs failed for group {group_idx}.",
-                payload={"error": str(e), "path": merged_json_path},
+                payload={
+                    "error_code": MERGE_FAILED,
+                    "error_detail": str(e),
+                    "path": merged_json_path,
+                },
             )
 
     if config.get("convert_to_csv", True):

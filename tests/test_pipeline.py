@@ -61,6 +61,8 @@ class FakeVideoService:
 
     def create_projection_video(self, image_folder, output_video_path, fps, **kwargs):
         self.calls.append((image_folder, output_video_path, fps, kwargs))
+        if getattr(self, "should_fail", False):
+            raise RuntimeError("video boom")
 
 
 def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
@@ -206,6 +208,7 @@ def test_pipeline_runner_marks_job_cancelled_before_group_processing():
 
     assert result is not None
     assert result.status == "cancelled"
+    assert result.job_run.events[-1].payload["error_code"] == "job_cancelled"
     assert group_service.calls == []
     assert video_service.calls == []
 
@@ -248,3 +251,79 @@ def test_run_request_requires_exactly_one_config_source():
 
     with pytest.raises(ValueError):
         RunRequest(config_path="config.json", config={})
+
+
+def test_pipeline_runner_emits_error_code_for_config_failure():
+    observer = InMemoryJobStore()
+
+    result = PipelineRunner(
+        config_service=FakeConfigService({}),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-config-fail")
+
+    assert result is not None
+    payload = observer.get("job-config-fail").events[-1].payload
+    assert payload["error_code"] == "config_load_failed"
+
+
+def test_pipeline_runner_emits_error_code_for_masking_failure():
+    class FailingMaskingService(FakeMaskingService):
+        def preprocess(self, config, **kwargs):
+            raise RuntimeError("mask boom")
+
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": False,
+        "clean_frames_after_video": False,
+        "mask_videos": True,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    observer = InMemoryJobStore()
+
+    PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FailingMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=FakeVideoService(),
+    ).run("config.json", observer=observer, job_id="job-mask-fail")
+
+    snapshot = observer.get("job-mask-fail")
+    assert snapshot is not None
+    masking_failed = [event for event in snapshot.events if event.event_type == "masking_failed"][0]
+    assert masking_failed.payload["error_code"] == "masking_failed"
+    assert masking_failed.payload["error_detail"] == "mask boom"
+
+
+def test_pipeline_runner_emits_error_code_for_video_failure():
+    config = {
+        "model_path": "models/yolo.pt",
+        "fps": 6,
+        "create_projection_video": True,
+        "clean_frames_after_video": False,
+        "mask_videos": False,
+        "output_video_filename": "projection.mp4",
+        "video_groups": [[{"path": "input.json", "camera_nr": 1}]],
+    }
+    observer = InMemoryJobStore()
+    video_service = FakeVideoService()
+    video_service.should_fail = True
+
+    PipelineRunner(
+        config_service=FakeConfigService(config),
+        directory_service=FakeDirectoryService(),
+        masking_service=FakeMaskingService([]),
+        group_processing_service=FakeGroupProcessingService(),
+        video_service=video_service,
+    ).run("config.json", observer=observer, job_id="job-video-fail")
+
+    snapshot = observer.get("job-video-fail")
+    assert snapshot is not None
+    video_failed = [event for event in snapshot.events if event.event_type == "video_failed"][0]
+    assert video_failed.payload["error_code"] == "video_failed"
+    assert video_failed.payload["error_detail"] == "video boom"

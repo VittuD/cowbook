@@ -37,6 +37,8 @@ pipeline. It does not schedule or persist jobs. It defines:
 
 ## Cancellation
 
+::: cowbook.execution.error_codes
+
 ::: cowbook.execution.control.JobCancelledError
 
 ::: cowbook.execution.control.CancellationToken

@@ -1,0 +1,11 @@
+"""Stable machine-readable error codes for package-level execution events."""
+
+CONFIG_LOAD_FAILED = "config_load_failed"
+MASKING_FAILED = "masking_failed"
+TRACKING_FAILED = "tracking_failed"
+PROCESSING_FAILED = "processing_failed"
+MERGE_FAILED = "merge_failed"
+VIDEO_FAILED = "video_failed"
+GROUP_FAILED = "group_failed"
+JOB_CANCELLED = "job_cancelled"
+GROUP_CANCELLED = "group_cancelled"

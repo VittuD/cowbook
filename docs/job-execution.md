@@ -30,4 +30,16 @@ Other long-running stages use the same pattern with stage-specific prefixes:
 
 Those payloads always include `stage_name`, may include path metadata such as `video_path`, `base_filename`, or `output_video_path`, and use `current`, `total`, and `progress_fraction` for milestone updates.
 
+Failed and cancelled events may also carry a stable `error_code` plus optional `error_detail`. Current package-level codes include:
+
+- `config_load_failed`
+- `masking_failed`
+- `tracking_failed`
+- `processing_failed`
+- `merge_failed`
+- `video_failed`
+- `group_failed`
+- `group_cancelled`
+- `job_cancelled`
+
 Cancellation is cooperative rather than forceful: the engine can stop between stages and in selected inner loops, but it is not a hard process kill mechanism.

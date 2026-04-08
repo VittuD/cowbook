@@ -33,6 +33,21 @@ def test_in_memory_job_store_tracks_status_errors_and_artifacts():
     assert snapshot.artifacts[0].kind == "merged_json"
 
 
+def test_in_memory_job_store_prefers_error_detail_for_errors():
+    store = InMemoryJobStore()
+    reporter = JobReporter(job_id="job-2", config_path="config.json", observer=store)
+
+    reporter.emit(
+        "processing_failed",
+        stage="processing",
+        payload={"error_code": "processing_failed", "error_detail": "detail"},
+    )
+
+    snapshot = store.get("job-2")
+    assert snapshot is not None
+    assert snapshot.errors == ["detail"]
+
+
 def test_group_processor_emits_structured_events_for_precomputed_json_group(
     tmp_path: Path,
     fixtures_dir: Path,
@@ -103,3 +118,46 @@ def test_group_processor_emits_structured_events_for_precomputed_json_group(
         "csv",
         "csv",
     ]
+
+
+def test_group_processor_emits_error_codes_for_tracking_processing_and_merge_failures(
+    tmp_path: Path,
+    monkeypatch,
+):
+    input_json = tmp_path / "input_tracking.json"
+    input_json.write_text('{"frames": []}')
+
+    def fake_process_and_save_frames(*args, **kwargs):
+        raise RuntimeError("processing boom")
+
+    def fake_merge_json_files(*args, **kwargs):
+        raise RuntimeError("merge boom")
+
+    monkeypatch.setattr(
+        "cowbook.workflows.group_processor.process_and_save_frames",
+        fake_process_and_save_frames,
+    )
+    monkeypatch.setattr("cowbook.workflows.group_processor.merge_json_files", fake_merge_json_files)
+
+    store = InMemoryJobStore()
+    reporter = JobReporter(job_id="job-errors", config_path="config.json", observer=store)
+
+    process_video_group(
+        1,
+        [{"path": str(input_json), "camera_nr": 1}],
+        "models/yolo.pt",
+        {
+            "calibration_file": "assets/calibration/calibration_matrix.json",
+            "convert_to_csv": False,
+            "num_plot_workers": 0,
+            "output_image_format": "jpg",
+        },
+        str(tmp_path),
+        str(tmp_path / "frames"),
+        reporter=reporter,
+    )
+
+    snapshot = store.get("job-errors")
+    assert snapshot is not None
+    by_type = {event.event_type: event.payload for event in snapshot.events}
+    assert by_type["processing_failed"]["error_code"] == "processing_failed"

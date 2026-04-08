@@ -13,6 +13,12 @@ from cowbook.app.services import (
 )
 from cowbook.core.contracts import PipelineConfig, RunRequest
 from cowbook.execution import (
+    CONFIG_LOAD_FAILED,
+    GROUP_CANCELLED,
+    GROUP_FAILED,
+    JOB_CANCELLED,
+    MASKING_FAILED,
+    VIDEO_FAILED,
     CancellationToken,
     CompositeObserver,
     InMemoryJobStore,
@@ -136,7 +142,7 @@ class PipelineRunner:
                 status="failed",
                 stage="config",
                 message=f"Failed to load config from {request.config_reference}",
-                payload={"error": "config_load_failed"},
+                payload={"error_code": CONFIG_LOAD_FAILED},
             )
             return self._build_result(run_store.get(reporter.job_id))
         resolved_config = PipelineConfig.from_mapping(config)
@@ -198,7 +204,11 @@ class PipelineRunner:
                     "masking_failed",
                     stage="masking",
                     message="Video masking failed. Falling back to original videos.",
-                    payload={"error": str(exc), "fallback": "original_videos"},
+                    payload={
+                        "error_code": MASKING_FAILED,
+                        "error_detail": str(exc),
+                        "fallback": "original_videos",
+                    },
                 )
         if self._cancel_if_requested(reporter, cancellation_token, stage="groups"):
             return run_store.get(reporter.job_id)
@@ -233,6 +243,7 @@ class PipelineRunner:
                         stage="group",
                         group_idx=idx,
                         message=f"Group {idx} cancelled.",
+                        payload={"error_code": GROUP_CANCELLED},
                     )
                     self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx)
                     return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
@@ -243,7 +254,7 @@ class PipelineRunner:
                         stage="group",
                         group_idx=idx,
                         message=f"Group {idx} failed.",
-                        payload={"error": str(exc)},
+                        payload={"error_code": GROUP_FAILED, "error_detail": str(exc)},
                     )
 
         if config.get("create_projection_video", True):
@@ -296,7 +307,11 @@ class PipelineRunner:
                     "video_failed",
                     stage="video",
                     message="Failed to create projection video.",
-                    payload={"error": str(exc), "path": output_video_path},
+                    payload={
+                        "error_code": VIDEO_FAILED,
+                        "error_detail": str(exc),
+                        "path": output_video_path,
+                    },
                 )
 
         snapshot = run_store.get(reporter.job_id)
@@ -334,5 +349,6 @@ class PipelineRunner:
             stage=stage,
             group_idx=group_idx,
             message="Job cancelled.",
+            payload={"error_code": JOB_CANCELLED},
         )
         return True
