@@ -182,6 +182,8 @@ Docker images included:
 
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
+- `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
+- `docker/Dockerfile.tensorrt-bench`: TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
 
 The image:
 
@@ -240,6 +242,36 @@ Notes:
 To override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
 
 The cleanup benchmark image runs the optional `tracking_cleanup` path on prepared long videos, saves tracking JSON and annotated tracking videos, renders projected barn frames, and assembles a combined projection video. Its current defaults target `/scratch/vet/var/...` and enable `--log-progress`.
+
+The backend benchmark image runs `tools.benchmark_tracking_backends` against the four sample videos, supports both sequential shared-model runs and `process_parallel_models` runs such as `--process-workers 2`, exports `onnx` and `engine` candidates from the baseline `.pt` model when the environment supports that, and writes a JSON summary under `var/benchmarks/`. The same tool can also benchmark prebuilt artifacts through `--onnx-artifact-path` and `--engine-artifact-path`.
+
+The TensorRT concurrency image runs `tools.benchmark_tensorrt_concurrency`, exports or reuses one TensorRT engine, then benchmarks both `.pt` and `.engine` across the requested tracking concurrencies. Concurrency `1` uses the single-model sequential path; higher values use `process_parallel_models` with the matching worker count.
+
+Build the TensorRT concurrency image:
+
+```bash
+docker build -f docker/Dockerfile.tensorrt-bench -t cowbook-tensorrt-bench .
+```
+
+Run the default `1 2 3 4` sweep on a GPU host:
+
+```bash
+docker run --rm -it \
+  --gpus all \
+  -v "$(pwd)/var:/app/var" \
+  cowbook-tensorrt-bench
+```
+
+Run the same image on a remote A40 box with an explicit output path:
+
+```bash
+docker run --rm -it \
+  --gpus all \
+  -v "$(pwd)/var:/app/var" \
+  cowbook-tensorrt-bench \
+  --concurrency-values 1 2 3 4 \
+  --output var/benchmarks/tensorrt_a40_1_4.json
+```
 
 ## Config Model
 
