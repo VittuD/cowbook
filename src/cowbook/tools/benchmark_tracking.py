@@ -159,11 +159,12 @@ def _repeat_mode(
     *,
     repeat_count: int,
     runner,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     runs = [asdict(runner()) for _ in range(repeat_count)]
     elapsed_values = [float(run["elapsed_s"]) for run in runs]
     best_run = min(runs, key=lambda run: float(run["elapsed_s"]))
-    return {
+    result = {
         "mode": mode_name,
         "repeat_count": repeat_count,
         "best_elapsed_s": min(elapsed_values),
@@ -171,6 +172,9 @@ def _repeat_mode(
         "runs": runs,
         "best_run": best_run,
     }
+    if extra:
+        result.update(extra)
+    return result
 
 
 def _query_gpu_info() -> list[str]:
@@ -354,6 +358,13 @@ def _parse_args() -> argparse.Namespace:
         help="Worker count for process_parallel_models. Defaults to the number of videos.",
     )
     parser.add_argument(
+        "--process-worker-sweep",
+        nargs="+",
+        type=int,
+        default=None,
+        help="If provided, run process_parallel_models once for each listed worker count.",
+    )
+    parser.add_argument(
         "--repeat",
         type=int,
         default=1,
@@ -398,6 +409,11 @@ def main() -> int:
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     process_workers = args.process_workers or len(benchmark_videos)
+    process_worker_sweep = [
+        worker_count
+        for worker_count in (args.process_worker_sweep or [])
+        if worker_count > 0
+    ]
 
     summary: dict[str, Any] = {
         "source_videos": videos,
@@ -408,6 +424,7 @@ def main() -> int:
         "extend_seconds": args.extend_seconds,
         "prepared_video_dir": args.prepared_video_dir if args.extend_seconds > 0 else None,
         "prepared_videos": prepared_video_metadata,
+        "process_worker_sweep": process_worker_sweep or None,
         "gpu_info": _query_gpu_info(),
         "results": [],
     }
@@ -434,16 +451,25 @@ def main() -> int:
                 ),
             )
         elif mode_name == "process_parallel_models":
-            mode_result = _repeat_mode(
-                mode_name,
-                repeat_count=args.repeat,
-                runner=lambda: _run_process_parallel_models(
-                    videos=benchmark_videos,
-                    model_path=args.model_path,
-                    tracker_config=args.tracker_config,
-                    worker_count=process_workers,
-                ),
-            )
+            worker_counts = process_worker_sweep or [process_workers]
+            for worker_count in worker_counts:
+                effective_worker_count = max(1, min(worker_count, len(benchmark_videos)))
+                mode_result = _repeat_mode(
+                    mode_name,
+                    repeat_count=args.repeat,
+                    runner=lambda worker_count=effective_worker_count: _run_process_parallel_models(
+                        videos=benchmark_videos,
+                        model_path=args.model_path,
+                        tracker_config=args.tracker_config,
+                        worker_count=worker_count,
+                    ),
+                    extra={
+                        "requested_worker_count": worker_count,
+                        "effective_worker_count": effective_worker_count,
+                    },
+                )
+                summary["results"].append(mode_result)
+            continue
         else:  # pragma: no cover
             raise ValueError(f"Unsupported benchmark mode: {mode_name}")
         summary["results"].append(mode_result)
@@ -456,6 +482,19 @@ def main() -> int:
         baseline = float(sequential["best_elapsed_s"])
         for result in summary["results"]:
             result["speedup_vs_sequential_best"] = (
+                baseline / float(result["best_elapsed_s"]) if result["best_elapsed_s"] else None
+            )
+    elif summary["results"]:
+        best_overall = min(summary["results"], key=lambda result: float(result["best_elapsed_s"]))
+        baseline = float(best_overall["best_elapsed_s"])
+        summary["best_mode"] = {
+            "mode": best_overall["mode"],
+            "best_elapsed_s": best_overall["best_elapsed_s"],
+            "requested_worker_count": best_overall.get("requested_worker_count"),
+            "effective_worker_count": best_overall.get("effective_worker_count"),
+        }
+        for result in summary["results"]:
+            result["speedup_vs_best_mode"] = (
                 baseline / float(result["best_elapsed_s"]) if result["best_elapsed_s"] else None
             )
 
