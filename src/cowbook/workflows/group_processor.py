@@ -1,11 +1,21 @@
 # group_processor.py
 
 import logging
+import multiprocessing as _mp_std
 import multiprocessing as mp
 import os
+import time
+from queue import Empty
 from typing import List, Tuple
 
-from cowbook.execution import CancellationToken, JobCancelledError, JobReporter
+from cowbook.execution import (
+    MERGE_FAILED,
+    PROCESSING_FAILED,
+    TRACKING_FAILED,
+    CancellationToken,
+    JobCancelledError,
+    JobReporter,
+)
 from cowbook.io.json_merger import merge_json_files
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
@@ -25,6 +35,11 @@ def _tracking_worker(
     output_json: str,
     model_ref: str,
     save: bool,
+    tracking_cleanup: dict | None = None,
+    camera_nr: int | None = None,
+    log_progress: bool = False,
+    group_idx: int | None = None,
+    progress_queue=None,
 ) -> Tuple[str | None, str | None]:
     """
     Run tracking for a single video in a separate process.
@@ -40,15 +55,43 @@ def _tracking_worker(
         pass
 
     try:
-        track_video_with_yolo(
-            video_path,
-            output_json,
-            model_ref,
-            save=save,
-        )
+        progress_event_sink = None
+        if progress_queue is not None:
+            def progress_event_sink(event_type: str, payload: dict) -> None:
+                progress_queue.put(
+                    {
+                        "event_type": event_type,
+                        "group_idx": group_idx,
+                        "payload": payload,
+                    }
+                )
+        kwargs = {"save": save}
+        if tracking_cleanup and tracking_cleanup.get("enabled"):
+            kwargs["tracking_cleanup"] = tracking_cleanup
+        kwargs["log_progress"] = log_progress
+        kwargs["camera_nr"] = camera_nr
+        if progress_event_sink is not None:
+            kwargs["progress_event_sink"] = progress_event_sink
+        track_video_with_yolo(video_path, output_json, model_ref, **kwargs)
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
+
+
+def _drain_tracking_progress_queue(progress_queue, reporter: JobReporter | None) -> None:
+    if reporter is None or progress_queue is None:
+        return
+    while True:
+        try:
+            item = progress_queue.get_nowait()
+        except Empty:
+            break
+        reporter.emit(
+            item["event_type"],
+            stage="tracking",
+            group_idx=item.get("group_idx"),
+            payload=item.get("payload", {}),
+        )
 
 
 def _json_to_csv(json_path: str) -> str | None:
@@ -139,6 +182,7 @@ def process_video_group(
                 output_json,
                 config.get("model_path", None) if "model_path" in config else model_ref,
                 bool(config.get("save_tracking_video", False)),
+                config.get("tracking_cleanup"),
                 camera_nr,
             )
         )
@@ -167,11 +211,55 @@ def process_video_group(
             )
 
         ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=effective_tracking_concurrency) as pool:
-            results = pool.starmap(_tracking_worker, [task[:4] for task in tasks])
+        log_progress = bool(config.get("log_progress", False))
+        if reporter is None:
+            with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+                results = pool.starmap(
+                    _tracking_worker,
+                    [
+                        (
+                            video_path,
+                            output_json,
+                            model_ref,
+                            save,
+                            tracking_cleanup,
+                            camera_nr,
+                            log_progress,
+                            group_idx,
+                            None,
+                        )
+                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
+                    ],
+                )
+        else:
+            with _mp_std.Manager() as manager:
+                progress_queue = manager.Queue()
+                with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+                    async_results = [
+                        pool.apply_async(
+                            _tracking_worker,
+                            (
+                                video_path,
+                                output_json,
+                                model_ref,
+                                save,
+                                tracking_cleanup,
+                                camera_nr,
+                                log_progress,
+                                group_idx,
+                                progress_queue,
+                            ),
+                        )
+                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
+                    ]
+                    while not all(result.ready() for result in async_results):
+                        _drain_tracking_progress_queue(progress_queue, reporter)
+                        time.sleep(0.1)
+                    _drain_tracking_progress_queue(progress_queue, reporter)
+                    results = [result.get() for result in async_results]
         _raise_if_cancelled(cancellation_token)
 
-        for (output_json, err), (_, _, _, _, camera_nr) in zip(results, tasks):
+        for (output_json, err), (_, _, _, _, _, camera_nr) in zip(results, tasks):
             if err:
                 logger.error("%s", err)
                 tracking_errors.append(err)
@@ -203,7 +291,11 @@ def process_video_group(
                     stage="tracking",
                     group_idx=group_idx,
                     message="One or more tracking jobs failed.",
-                    payload={"error": "; ".join(tracking_errors), "failure_count": len(tracking_errors)},
+                    payload={
+                        "error_code": TRACKING_FAILED,
+                        "error_detail": "; ".join(tracking_errors),
+                        "failure_count": len(tracking_errors),
+                    },
                 )
     elif reporter is not None:
         reporter.emit(
@@ -236,6 +328,9 @@ def process_video_group(
             num_plot_workers=config.get("num_plot_workers", 0),
             output_image_format=config.get("output_image_format", "png"),
             cancellation_token=cancellation_token,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=bool(config.get("log_progress", False)),
         )
     except Exception as e:
         if isinstance(e, JobCancelledError):
@@ -248,7 +343,7 @@ def process_video_group(
                 stage="processing",
                 group_idx=group_idx,
                 message=f"Frame processing failed for group {group_idx}.",
-                payload={"error": str(e)},
+                payload={"error_code": PROCESSING_FAILED, "error_detail": str(e)},
             )
 
     processed_camera_nrs = [
@@ -321,7 +416,11 @@ def process_video_group(
                 stage="merge",
                 group_idx=group_idx,
                 message=f"Merging processed JSONs failed for group {group_idx}.",
-                payload={"error": str(e), "path": merged_json_path},
+                payload={
+                    "error_code": MERGE_FAILED,
+                    "error_detail": str(e),
+                    "path": merged_json_path,
+                },
             )
 
     if config.get("convert_to_csv", True):

@@ -23,3 +23,12 @@ The pipeline stages are:
 9. optionally assemble the final MP4
 
 If one camera in a group fails, the group continues with the surviving cameras.
+
+When `tracking_cleanup.enabled` is true, the tracking stage expands into:
+
+1. detection cache for the current run
+2. detection preprocessing
+3. cleanup tracking pass 1
+4. optional short-track pruning
+5. optional cleanup tracking pass 2
+6. optional output smoothing

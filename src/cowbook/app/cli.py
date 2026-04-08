@@ -12,6 +12,7 @@ CLI_OVERRIDE_FIELDS = (
     "output_image_format",
     "num_plot_workers",
     "tracking_concurrency",
+    "log_progress",
     "create_projection_video",
     "clean_frames_after_video",
     "mask_videos",
@@ -45,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
         dest="tracking_concurrency",
         type=int,
         help="Override how many videos may be tracked concurrently within a group",
+    )
+    parser.add_argument(
+        "--log-progress",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable human-readable progress logs during long-running stages",
     )
     parser.add_argument(
         "--create-projection-video",

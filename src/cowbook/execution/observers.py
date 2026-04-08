@@ -81,7 +81,11 @@ class InMemoryJobStore:
         if event.event_type == "group_failed":
             run.groups_failed += 1
 
-        error_message = payload.get("error") or (event.message if event.status == "failed" else None)
+        error_message = (
+            payload.get("error_detail")
+            or payload.get("error")
+            or (event.message if event.status == "failed" else None)
+        )
         if error_message:
             run.error_count += 1
             run.errors.append(str(error_message))

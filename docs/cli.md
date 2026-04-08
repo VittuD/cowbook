@@ -16,13 +16,14 @@ python -m cowbook --config configs/smoke.json
 python -m cowbook configs/full.cpu.json
 ```
 
-Supported overrides cover only operational concerns: frame rate, output filename, image format, plotting workers, tracking workers, projection-video creation, frame cleanup, and whether masking runs before inference.
+Supported overrides cover only operational concerns: frame rate, output filename, image format, plotting workers, tracking concurrency, progress logging, projection-video creation, frame cleanup, and whether masking runs before inference.
 
 Typical examples:
 
 ```bash
 python -m cowbook --config configs/full.cpu.json --fps 12
 python -m cowbook --config configs/full.cpu.json --mask-videos
+python -m cowbook --config configs/full.cpu.json --log-progress
 python -m cowbook --config configs/full.cpu.json --no-clean-frames-after-video
 ```
 

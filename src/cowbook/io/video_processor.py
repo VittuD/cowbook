@@ -6,6 +6,8 @@ import re
 
 import cv2
 
+from cowbook.execution import JobReporter, StageProgressReporter
+
 logger = logging.getLogger(__name__)
 
 def extract_frame_number(filename):
@@ -25,7 +27,15 @@ def extract_frame_number(filename):
     match = re.search(r'frame_(\d+)', filename)
     return int(match.group(1)) if match else -1  # Return -1 if no match is found
 
-def create_video_from_images(image_folder, output_video_path, fps=6):
+def create_video_from_images(
+    image_folder,
+    output_video_path,
+    fps=6,
+    *,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    log_progress: bool = False,
+):
     """
     Generate a video from a sequence of images.
 
@@ -52,6 +62,18 @@ def create_video_from_images(image_folder, output_video_path, fps=6):
     # Define codec and create the VideoWriter object
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     video = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+    progress = StageProgressReporter(
+        event_prefix="video",
+        reporter_stage="video",
+        stage_name="assemble_video",
+        path_value=output_video_path,
+        path_key="output_video_path",
+        total=len(images),
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+    )
+    progress.stage_started()
 
     # Font settings for overlaying frame number text
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -60,7 +82,7 @@ def create_video_from_images(image_folder, output_video_path, fps=6):
     thickness = 1
 
     # Iterate through each image, add frame number, and write to video
-    for image in images:
+    for idx, image in enumerate(images, start=1):
         img_path = os.path.join(image_folder, image)
         frame = cv2.imread(img_path)
         
@@ -76,7 +98,9 @@ def create_video_from_images(image_folder, output_video_path, fps=6):
         
         # Write the frame to the video
         video.write(frame)
+        progress.step_progress(idx, len(images))
 
     # Release the video writer
     video.release()
+    progress.stage_completed()
     logger.info("Video saved as %s", output_video_path)

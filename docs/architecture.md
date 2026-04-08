@@ -41,7 +41,7 @@ The internal package layout follows responsibilities rather than scripts:
 
 - [`cowbook.runtime`](reference/runtime.md#cowbook.runtime): public package surface and stable imports
 - [`cowbook.app`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner): synchronous orchestration centered on [`PipelineRunner`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner)
-- [`cowbook.execution`](reference/execution.md): structured run state, observers, and [execution reference](reference/execution.md)
+- [`cowbook.execution`](reference/execution.md): structured run state, observers, shared progress reporting, and [execution reference](reference/execution.md)
 - [`cowbook.core`](reference/runtime.md#cowbook.core.contracts.PipelineConfig): typed contracts, including [`PipelineConfig`](reference/runtime.md#cowbook.core.contracts.PipelineConfig), plus shared transforms
 - `cowbook.io`: [config loading](configuration.md), file-based inputs, and [runtime artifacts](runtime-artifacts.md)
 - `cowbook.vision`: tracking, [projection](calibration.md), and rendering

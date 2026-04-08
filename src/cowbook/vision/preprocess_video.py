@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Tuple
 
 import cv2
 
+from cowbook.execution import JobReporter, StageProgressReporter
+
 logger = logging.getLogger(__name__)
 
 
@@ -215,7 +217,12 @@ def _process_one_video(
 
 
 # ---------- Public entrypoint ----------
-def preprocess_videos(config: Dict) -> List[List[Dict]]:
+def preprocess_videos(
+    config: Dict,
+    *,
+    reporter: JobReporter | None = None,
+    log_progress: bool = False,
+) -> List[List[Dict]]:
     """
     - Reads config["video_groups"] and config["masks"].
     - Produces masked copies of every referenced video in parallel (if needed).
@@ -272,6 +279,16 @@ def preprocess_videos(config: Dict) -> List[List[Dict]]:
         to_process.append(w)
 
     logger.info("Masking %d/%d videos with %d workers...", len(to_process), len(work_items), max_workers)
+    progress = StageProgressReporter(
+        event_prefix="masking",
+        reporter_stage="masking",
+        stage_name="mask_videos",
+        total=len(to_process),
+        log_progress=log_progress,
+        reporter=reporter,
+        extra_payload={"masked_video_folder": masked_root},
+    )
+    progress.stage_started()
 
     if to_process:
         # Use "spawn" explicitly to avoid fork-related issues in multi-threaded runtimes.
@@ -283,12 +300,16 @@ def preprocess_videos(config: Dict) -> List[List[Dict]]:
                 ex.submit(_process_one_video, w["src"], w["dst"], w["mask_path"], strict_half_rule)
                 for w in to_process
             ]
+            completed = 0
             for j in futures.as_completed(jobs):
                 src, dst, ok = j.result()
+                completed += 1
+                progress.step_progress(completed, len(to_process))
                 if ok:
                     logger.info("Masked: %s -> %s", os.path.basename(src), os.path.basename(dst))
                 else:
                     logger.error("Failed: %s", src)
+    progress.stage_completed()
 
     # Build a new groups object with replaced paths
     new_groups: List[List[Dict]] = []

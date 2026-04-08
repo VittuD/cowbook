@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
+from cowbook.execution import InMemoryJobStore, JobReporter
 from cowbook.io.video_processor import create_video_from_images, extract_frame_number
 
 
@@ -25,6 +26,30 @@ def test_create_video_from_images_builds_mp4_from_sorted_images(tmp_path):
 
     assert output_video.exists()
     assert output_video.stat().st_size > 0
+
+
+def test_create_video_from_images_emits_video_progress(tmp_path):
+    image_dir = tmp_path / "frames"
+    image_dir.mkdir()
+
+    for frame_no in [0, 1]:
+        img = np.full((60, 80, 3), frame_no * 40, dtype=np.uint8)
+        cv2.imwrite(str(image_dir / f"combined_frame_{frame_no}_frame_{frame_no:03d}.jpg"), img)
+
+    output_video = tmp_path / "assembled.mp4"
+    store = InMemoryJobStore()
+    reporter = JobReporter(job_id="job-video", config_path="config.json", observer=store)
+
+    create_video_from_images(str(image_dir), str(output_video), fps=6, reporter=reporter)
+
+    snapshot = store.get("job-video")
+    assert snapshot is not None
+    assert [event.event_type for event in snapshot.events] == [
+        "video_stage_started",
+        "video_stage_progress",
+        "video_stage_progress",
+        "video_stage_completed",
+    ]
 
 
 def test_create_video_from_images_raises_for_empty_folder(tmp_path):

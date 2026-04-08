@@ -13,7 +13,15 @@ python -m cowbook
 For non-CLI embedding, `cowbook` also exposes a small stable Python [runtime surface](docs/package-boundaries.md):
 
 ```python
-from cowbook import PipelineRunner, load_pipeline_config, run_pipeline
+from cowbook import (
+    PipelineRunner,
+    RunRequest,
+    load_pipeline_config,
+    load_pipeline_config_object,
+    materialize_pipeline_config,
+    run_pipeline,
+    run_pipeline_request,
+)
 ```
 
 ## Documentation
@@ -70,6 +78,8 @@ Deep internal modules are documented only when they become stable extension poin
 
 Directory intent is simple: `assets/` stores persistent non-code project assets such as calibration, masks, tracker config, and the barn background; `configs/` stores example run configs; `sample_data/` stores local inputs for smoke and full runs; `src/cowbook/` contains the packaged code; and `var/` is reserved for runtime outputs and cache data.
 
+The [`scripts/`](scripts) directory contains optional repository utilities. [`group_videos.sh`](scripts/group_videos.sh) is a helper for reorganizing flat raw camera drops into grouped `videos/<group>/ChX.mp4` directories before config creation.
+
 ## Install
 
 Runtime install:
@@ -118,10 +128,11 @@ Common CLI overrides:
 ```bash
 python -m cowbook --config configs/full.cpu.json --fps 12 --output-video-filename run.mp4
 python -m cowbook --config configs/full.cpu.json --mask-videos
+python -m cowbook --config configs/full.cpu.json --log-progress
 python -m cowbook --config configs/full.cpu.json --no-clean-frames-after-video
 ```
 
-Supported overrides are intentionally small: frame rate, output filename, output image format, plot workers, tracking workers, projection-video creation, frame cleanup, and whether video masking runs before inference.
+Supported overrides are intentionally small: frame rate, output filename, output image format, plot workers, tracking concurrency, progress logging, projection-video creation, frame cleanup, and whether video masking runs before inference.
 
 ## Python Embedding
 
@@ -132,19 +143,41 @@ The stable import surface is the package root or [runtime.py](src/cowbook/runtim
 Example:
 
 ```python
-from cowbook import load_pipeline_config, run_pipeline
+from cowbook import (
+    RunRequest,
+    load_pipeline_config,
+    load_pipeline_config_object,
+    materialize_pipeline_config,
+    run_pipeline,
+    run_pipeline_request,
+)
 
 config = load_pipeline_config("configs/smoke.json")
 result = run_pipeline("configs/smoke.json")
+tracking_jsons = result.tracking_json_paths
+
+config_object = load_pipeline_config_object(
+    {
+        "model_path": "models/best.pt",
+        "video_groups": [[{"path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1}]],
+    }
+)
+
+request = RunRequest(config=config_object, overrides={"run_name": "demo"})
+result = run_pipeline_request(request)
+materialized = materialize_pipeline_config(config_object, "var/tmp/demo.json")
 ```
 
-Package-facing exports are `PipelineRunner`, `PipelineConfig`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, and `run_pipeline()`.
+Request-based runtime entrypoints return a normalized `RunResult`, which wraps the underlying `JobRun` plus summarized artifact paths.
+
+Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker
 
-One Docker image is included:
+Docker images included:
 
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
+- `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 
 The image:
 
@@ -158,6 +191,12 @@ Build the image:
 
 ```bash
 docker build -f docker/Dockerfile -t cowbook .
+```
+
+Build the cleanup benchmark image:
+
+```bash
+docker build -f docker/Dockerfile.a40-cleanup -t cowbook-a40-cleanup .
 ```
 
 Run it on CPU and persist outputs on the host:
@@ -196,6 +235,8 @@ Notes:
 
 To override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
 
+The cleanup benchmark image runs the optional `tracking_cleanup` path on prepared long videos, saves tracking JSON and annotated tracking videos, renders projected barn frames, and assembles a combined projection video. Its current defaults target `/scratch/vet/var/...` and enable `--log-progress`.
+
 ## Config Model
 
 The runtime contract is a JSON config plus a small CLI override surface.
@@ -217,6 +258,7 @@ Minimal example:
   "convert_to_csv": true,
   "num_plot_workers": 0,
   "tracking_concurrency": 1,
+  "log_progress": false,
   "video_groups": [
     [
       { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 }
@@ -229,8 +271,25 @@ Notes:
 
 - input paths may be videos or precomputed tracking JSON files
 - `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
+- `log_progress` enables human-readable milestone logs for long tracking stages
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`
+- optional tracking cleanup lives under `tracking_cleanup`
+
+Optional tracking cleanup can preprocess detections before tracking, preserve detection lineage, prune short-lived tracks with a second tracking pass, and smooth final output boxes. It is off by default.
+
+Example cleanup block:
+
+```json
+"tracking_cleanup": {
+  "enabled": true,
+  "conf_threshold": 0.15,
+  "nms_mode": "hybrid_nms",
+  "two_pass_prune_short_tracks": true,
+  "min_track_length": 30,
+  "postprocess_smoothing": true
+}
+```
 
 ## Output Layout
 
@@ -293,6 +352,7 @@ Current shape:
 
 - job lifecycle events
 - stage events such as config, masking, tracking, processing, merge, export, and video
+- tracking-internal stage events such as `direct`, `detect`, `cleanup_pass1`, `cleanup_pass2`, `preprocess`, `prune`, and `postprocess`
 - artifact events for generated JSON, CSV, directories, and videos
 
 This is implemented under [src/cowbook/execution](src/cowbook/execution).
@@ -300,7 +360,7 @@ This is implemented under [src/cowbook/execution](src/cowbook/execution).
 Design intent:
 
 - the pipeline publishes structured events
-- the CLI consumes them as logs today
+- `--log-progress` adds human-readable milestone logs for long tracking stages
 - another caller can attach its own observer without changing the pipeline core
 
 ## Assets
