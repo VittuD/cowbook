@@ -10,6 +10,7 @@ def test_package_root_exposes_public_runtime_surface():
     assert cowbook.PipelineRunner is runtime.PipelineRunner
     assert cowbook.PipelineConfig is runtime.PipelineConfig
     assert cowbook.RunRequest is runtime.RunRequest
+    assert cowbook.RunResult is runtime.RunResult
     assert callable(cowbook.run_pipeline)
     assert callable(cowbook.run_pipeline_request)
     assert callable(cowbook.load_pipeline_config)
@@ -62,7 +63,9 @@ def test_run_pipeline_helper_delegates_to_runner(monkeypatch):
         def run_request(self, request, **kwargs):
             captured["request"] = request
             captured["kwargs"] = kwargs
-            return {"ok": True}
+            return runtime.RunResult(
+                job_run=runtime.JobRun(job_id="job-1", config_path="config.json"),
+            )
 
     result = runtime.run_pipeline(
         "config.json",
@@ -71,7 +74,7 @@ def test_run_pipeline_helper_delegates_to_runner(monkeypatch):
         runner=FakeRunner(),
     )
 
-    assert result == {"ok": True}
+    assert isinstance(result, runtime.RunResult)
     assert captured["request"] == runtime.RunRequest(
         config_path="config.json",
         overrides={"fps": 9},
@@ -86,7 +89,9 @@ def test_run_pipeline_request_helper_delegates_to_runner():
         def run_request(self, request, **kwargs):
             captured["request"] = request
             captured["kwargs"] = kwargs
-            return {"ok": True}
+            return runtime.RunResult(
+                job_run=runtime.JobRun(job_id="job-2", config_path="<in-memory>"),
+            )
 
     request = runtime.RunRequest(
         config={
@@ -97,7 +102,7 @@ def test_run_pipeline_request_helper_delegates_to_runner():
 
     result = runtime.run_pipeline_request(request, job_id="job-2", runner=FakeRunner())
 
-    assert result == {"ok": True}
+    assert isinstance(result, runtime.RunResult)
     assert captured["request"] == request
     assert captured["kwargs"]["job_id"] == "job-2"
 

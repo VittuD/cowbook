@@ -79,7 +79,7 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
     group_service = FakeGroupProcessingService()
     video_service = FakeVideoService()
 
-    snapshot = PipelineRunner(
+    result = PipelineRunner(
         config_service=config_service,
         directory_service=directory_service,
         masking_service=masking_service,
@@ -92,10 +92,15 @@ def test_pipeline_runner_routes_through_services_for_group_and_video_flow():
     assert directory_service.cleared == ["frames"]
     assert len(group_service.calls) == 1
     assert video_service.calls == [("frames", "videos/projection.mp4", 6)]
-    assert snapshot.status == "completed"
-    assert snapshot.groups_total == 1
-    assert snapshot.groups_completed == 1
-    assert {artifact.kind for artifact in snapshot.artifacts} == {"output_dir", "projection_video"}
+    assert result is not None
+    assert result.status == "completed"
+    assert result.job_run.groups_total == 1
+    assert result.job_run.groups_completed == 1
+    assert {artifact.kind for artifact in result.job_run.artifacts} == {"output_dir", "projection_video"}
+    assert result.output_image_folder == "frames"
+    assert result.output_video_folder == "videos"
+    assert result.output_json_folder == "json"
+    assert result.projection_video_path == "videos/projection.mp4"
 
 
 def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
@@ -114,7 +119,7 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
     group_service = FakeGroupProcessingService()
     video_service = FakeVideoService()
 
-    snapshot = PipelineRunner(
+    result = PipelineRunner(
         config_service=FakeConfigService(config),
         directory_service=directory_service,
         masking_service=masking_service,
@@ -125,7 +130,8 @@ def test_pipeline_runner_uses_masked_groups_and_cleans_frames_when_configured():
     assert masking_service.calls == [config]
     assert group_service.calls[0][0][1] == masked_groups[0]
     assert directory_service.cleared == ["frames", "frames"]
-    assert snapshot.status == "completed"
+    assert result is not None
+    assert result.status == "completed"
 
 
 def test_pipeline_runner_can_publish_events_to_external_observer():
@@ -140,7 +146,7 @@ def test_pipeline_runner_can_publish_events_to_external_observer():
     }
     observer = InMemoryJobStore()
 
-    snapshot = PipelineRunner(
+    result = PipelineRunner(
         config_service=FakeConfigService(config),
         directory_service=FakeDirectoryService(),
         masking_service=FakeMaskingService([]),
@@ -150,7 +156,7 @@ def test_pipeline_runner_can_publish_events_to_external_observer():
 
     mirrored = observer.get("job-123")
 
-    assert snapshot is not None
+    assert result is not None
     assert mirrored is not None
     assert mirrored.status == "completed"
     assert [event.event_type for event in mirrored.events] == [
@@ -182,7 +188,7 @@ def test_pipeline_runner_marks_job_cancelled_before_group_processing():
 
     group_service = FakeGroupProcessingService()
     video_service = FakeVideoService()
-    snapshot = PipelineRunner(
+    result = PipelineRunner(
         config_service=FakeConfigService(config),
         directory_service=FakeDirectoryService(),
         masking_service=FakeMaskingService([]),
@@ -190,8 +196,8 @@ def test_pipeline_runner_marks_job_cancelled_before_group_processing():
         video_service=video_service,
     ).run("config.json", cancellation_token=cancellation_token)
 
-    assert snapshot is not None
-    assert snapshot.status == "cancelled"
+    assert result is not None
+    assert result.status == "cancelled"
     assert group_service.calls == []
     assert video_service.calls == []
 
@@ -208,7 +214,7 @@ def test_pipeline_runner_can_run_request_from_in_memory_config():
     }
     config_service = FakeConfigService(config)
 
-    snapshot = PipelineRunner(
+    result = PipelineRunner(
         config_service=config_service,
         directory_service=FakeDirectoryService(),
         masking_service=FakeMaskingService([]),
@@ -223,9 +229,9 @@ def test_pipeline_runner_can_run_request_from_in_memory_config():
     normalized_config, overrides = config_service.normalize_calls[0]
     assert isinstance(normalized_config, PipelineConfig)
     assert overrides == {"fps": 9}
-    assert snapshot is not None
-    assert snapshot.config_path == "<in-memory>"
-    assert snapshot.status == "completed"
+    assert result is not None
+    assert result.job_run.config_path == "<in-memory>"
+    assert result.status == "completed"
 
 
 def test_run_request_requires_exactly_one_config_source():

@@ -11,6 +11,8 @@ pipeline. It does not schedule or persist jobs. It defines:
 
 ## Run Models
 
+::: cowbook.execution.results.RunResult
+
 ::: cowbook.execution.models.JobRun
 
 ::: cowbook.execution.models.JobEvent

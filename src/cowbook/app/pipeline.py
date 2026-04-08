@@ -20,6 +20,8 @@ from cowbook.execution import (
     JobObserver,
     JobReporter,
     JobRun,
+    RunResult,
+    build_run_result,
     new_job_id,
 )
 
@@ -49,7 +51,7 @@ class PipelineRunner:
         observer: JobObserver | None = None,
         job_id: str | None = None,
         cancellation_token: CancellationToken | None = None,
-    ) -> JobRun | None:
+    ) -> RunResult | None:
         """Execute one pipeline run from a config file.
 
         Args:
@@ -60,7 +62,7 @@ class PipelineRunner:
             cancellation_token: Optional cooperative cancellation token.
 
         Returns:
-            A final :class:`cowbook.execution.models.JobRun` snapshot when available.
+            A final :class:`cowbook.execution.results.RunResult` when available.
         """
         return self.run_request(
             RunRequest(config_path=config_path, overrides=dict(overrides or {})),
@@ -77,7 +79,7 @@ class PipelineRunner:
         observer: JobObserver | None = None,
         job_id: str | None = None,
         cancellation_token: CancellationToken | None = None,
-    ) -> JobRun | None:
+    ) -> RunResult | None:
         """Execute one pipeline run from an in-memory config object."""
 
         return self.run_request(
@@ -94,7 +96,7 @@ class PipelineRunner:
         observer: JobObserver | None = None,
         job_id: str | None = None,
         cancellation_token: CancellationToken | None = None,
-    ) -> JobRun | None:
+    ) -> RunResult | None:
         """Execute one pipeline run from a typed request."""
 
         logging.basicConfig(
@@ -118,8 +120,9 @@ class PipelineRunner:
             payload={"overrides": dict(request.overrides)},
         )
         if self._cancel_if_requested(reporter, cancellation_token, stage="config"):
-            return run_store.get(reporter.job_id)
+            return self._build_result(run_store.get(reporter.job_id))
 
+        resolved_config: PipelineConfig | None = None
         config: dict[str, object]
         if request.config_path is not None:
             config = self.config_service.load(request.config_path, overrides=request.overrides)
@@ -135,7 +138,8 @@ class PipelineRunner:
                 message=f"Failed to load config from {request.config_reference}",
                 payload={"error": "config_load_failed"},
             )
-            return run_store.get(reporter.job_id)
+            return self._build_result(run_store.get(reporter.job_id))
+        resolved_config = PipelineConfig.from_mapping(config)
 
         reporter.emit(
             "config_loaded",
@@ -165,7 +169,7 @@ class PipelineRunner:
             payload={"path": output_image_folder},
         )
         if self._cancel_if_requested(reporter, cancellation_token, stage="setup"):
-            return run_store.get(reporter.job_id)
+            return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
 
         groups = config.get("video_groups", [])
         reporter.emit("groups_discovered", stage="groups", payload={"count": len(groups)})
@@ -205,7 +209,7 @@ class PipelineRunner:
         else:
             for idx, video_group in enumerate(groups, start=1):
                 if self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx):
-                    return run_store.get(reporter.job_id)
+                    return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
                 logger.info("=== Group %d/%d ===", idx, len(groups))
                 try:
                     self.group_processing_service.process_group(
@@ -227,7 +231,7 @@ class PipelineRunner:
                         message=f"Group {idx} cancelled.",
                     )
                     self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx)
-                    return run_store.get(reporter.job_id)
+                    return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
                 except Exception as exc:
                     logger.exception("Group %d failed: %s", idx, exc)
                     reporter.emit(
@@ -240,7 +244,7 @@ class PipelineRunner:
 
         if config.get("create_projection_video", True):
             if self._cancel_if_requested(reporter, cancellation_token, stage="video"):
-                return run_store.get(reporter.job_id)
+                return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
             output_video_path = os.path.join(
                 output_video_folder,
                 config.get("output_video_filename", "combined_projection.mp4"),
@@ -292,7 +296,17 @@ class PipelineRunner:
             stage="pipeline",
             payload={"had_errors": bool(snapshot.errors) if snapshot else False},
         )
-        return run_store.get(reporter.job_id)
+        return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
+
+    def _build_result(
+        self,
+        snapshot: JobRun | None,
+        *,
+        resolved_config: PipelineConfig | None = None,
+    ) -> RunResult | None:
+        if snapshot is None:
+            return None
+        return build_run_result(snapshot, resolved_config=resolved_config)
 
     def _cancel_if_requested(
         self,

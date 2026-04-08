@@ -154,6 +154,7 @@ from cowbook import (
 
 config = load_pipeline_config("configs/smoke.json")
 result = run_pipeline("configs/smoke.json")
+tracking_jsons = result.tracking_json_paths
 
 config_object = load_pipeline_config_object(
     {
@@ -167,7 +168,9 @@ result = run_pipeline_request(request)
 materialized = materialize_pipeline_config(config_object, "var/tmp/demo.json")
 ```
 
-Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
+Request-based runtime entrypoints return a normalized `RunResult`, which wraps the underlying `JobRun` plus summarized artifact paths.
+
+Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker
 

@@ -9,6 +9,7 @@ from cowbook.core.contracts import PipelineConfig, RunRequest
 from cowbook.execution.control import CancellationToken, JobCancelledError
 from cowbook.execution.models import JobArtifact, JobEvent, JobRun
 from cowbook.execution.observers import JobObserver
+from cowbook.execution.results import RunResult
 from cowbook.io.config_loader import (
     load_config_file,
     normalize_config_mapping,
@@ -67,7 +68,7 @@ def run_pipeline(
     job_id: str | None = None,
     cancellation_token: CancellationToken | None = None,
     runner: PipelineRunner | None = None,
-) -> JobRun | None:
+) -> RunResult | None:
     """Run one cowbook pipeline job synchronously.
 
     Args:
@@ -79,7 +80,7 @@ def run_pipeline(
         runner: Optional pipeline runner instance for custom wiring or tests.
 
     Returns:
-        A :class:`JobRun` snapshot when available.
+        A :class:`RunResult` when available.
     """
     active_runner = runner or PipelineRunner()
     return active_runner.run_request(
@@ -97,7 +98,7 @@ def run_pipeline_request(
     job_id: str | None = None,
     cancellation_token: CancellationToken | None = None,
     runner: PipelineRunner | None = None,
-) -> JobRun | None:
+) -> RunResult | None:
     """Run one cowbook pipeline job synchronously from a typed request."""
 
     active_runner = runner or PipelineRunner()
@@ -119,6 +120,7 @@ __all__ = [
     "PipelineConfig",
     "PipelineRunner",
     "RunRequest",
+    "RunResult",
     "load_pipeline_config",
     "load_pipeline_config_object",
     "materialize_pipeline_config",
