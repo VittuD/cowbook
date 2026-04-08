@@ -245,7 +245,7 @@ The cleanup benchmark image runs the optional `tracking_cleanup` path on prepare
 
 The backend benchmark image runs `tools.benchmark_tracking_backends` against the four sample videos, supports both sequential shared-model runs and `process_parallel_models` runs such as `--process-workers 2`, exports `onnx` and `engine` candidates from the baseline `.pt` model when the environment supports that, and writes a JSON summary under `var/benchmarks/`. The same tool can also benchmark prebuilt artifacts through `--onnx-artifact-path` and `--engine-artifact-path`.
 
-The TensorRT concurrency image runs `tools.benchmark_tensorrt_concurrency`, exports or reuses one TensorRT engine, then benchmarks both `.pt` and `.engine` across the requested tracking concurrencies. Concurrency `1` uses the single-model sequential path; higher values use `process_parallel_models` with the matching worker count.
+The TensorRT concurrency image runs `tools.benchmark_tensorrt_concurrency`, exports or reuses one TensorRT engine, then benchmarks both `.pt` and `.engine` across the requested tracking concurrencies. Concurrency `1` uses the single-model sequential path; higher values use `process_parallel_models` with the matching worker count. Its defaults now follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
 
 Build the TensorRT concurrency image:
 
@@ -258,7 +258,7 @@ Run the default `1 2 3 4` sweep on a GPU host:
 ```bash
 docker run --rm -it \
   --gpus all \
-  -v "$(pwd)/var:/app/var" \
+  -v /scratch/vet:/scratch/vet \
   cowbook-tensorrt-bench
 ```
 
@@ -267,10 +267,10 @@ Run the same image on a remote A40 box with an explicit output path:
 ```bash
 docker run --rm -it \
   --gpus all \
-  -v "$(pwd)/var:/app/var" \
+  -v /scratch/vet:/scratch/vet \
   cowbook-tensorrt-bench \
   --concurrency-values 1 2 3 4 \
-  --output var/benchmarks/tensorrt_a40_1_4.json
+  --output /scratch/vet/var/benchmarks/tensorrt_a40_1_4.json
 ```
 
 ## Config Model
