@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import json
 import multiprocessing as mp
 import os
@@ -189,6 +190,114 @@ def _query_gpu_info() -> list[str]:
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
+def _probe_duration_seconds(video_path: str) -> float:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return float(completed.stdout.strip())
+
+
+def _ensure_ffmpeg_available() -> None:
+    for tool_name in ("ffmpeg", "ffprobe"):
+        subprocess.run(
+            [tool_name, "-version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+
+def _build_extended_video(
+    source_video: str,
+    *,
+    target_duration_seconds: int,
+    output_dir: Path,
+) -> str:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source_path = Path(source_video)
+    output_path = output_dir / f"{source_path.stem}_{target_duration_seconds}s{source_path.suffix}"
+
+    if output_path.exists():
+        existing_duration = _probe_duration_seconds(str(output_path))
+        if existing_duration >= float(target_duration_seconds) - 0.5:
+            return str(output_path)
+
+    source_duration = _probe_duration_seconds(str(source_path))
+    if source_duration <= 0:
+        raise ValueError(f"Invalid source duration for {source_video}: {source_duration}")
+
+    repeat_count = max(1, math.ceil(target_duration_seconds / source_duration))
+    with tempfile.TemporaryDirectory(prefix="cowbook_ffmpeg_concat_") as tmpdir:
+        concat_file = Path(tmpdir) / "inputs.txt"
+        concat_file.write_text(
+            "".join(f"file '{source_path.resolve()}'\n" for _ in range(repeat_count)),
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_file),
+                "-t",
+                str(target_duration_seconds),
+                "-c",
+                "copy",
+                str(output_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    return str(output_path)
+
+
+def _prepare_benchmark_videos(
+    videos: list[str],
+    *,
+    target_duration_seconds: int,
+    prepared_video_dir: str,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if target_duration_seconds <= 0:
+        return videos, []
+
+    _ensure_ffmpeg_available()
+    output_dir = Path(prepared_video_dir)
+    prepared_videos: list[str] = []
+    prepared_metadata: list[dict[str, Any]] = []
+    for video_path in videos:
+        prepared_path = _build_extended_video(
+            video_path,
+            target_duration_seconds=target_duration_seconds,
+            output_dir=output_dir,
+        )
+        prepared_videos.append(prepared_path)
+        prepared_metadata.append(
+            {
+                "source_video": video_path,
+                "prepared_video": prepared_path,
+                "prepared_duration_s": _probe_duration_seconds(prepared_path),
+            }
+        )
+    return prepared_videos, prepared_metadata
+
+
 def _print_summary(summary: dict[str, Any]) -> None:
     print("Tracking benchmark summary")
     print(json.dumps(summary, indent=2))
@@ -246,6 +355,17 @@ def _parse_args() -> argparse.Namespace:
         default="var/benchmarks/tracking_benchmark.json",
         help="Path to write the JSON benchmark summary.",
     )
+    parser.add_argument(
+        "--extend-seconds",
+        type=int,
+        default=0,
+        help="If > 0, create longer benchmark copies of the input videos with ffmpeg before running.",
+    )
+    parser.add_argument(
+        "--prepared-video-dir",
+        default="var/benchmarks/prepared_videos",
+        help="Directory for ffmpeg-generated benchmark videos when --extend-seconds is used.",
+    )
     return parser.parse_args()
 
 
@@ -260,15 +380,25 @@ def _validate_videos(video_paths: Iterable[str]) -> list[str]:
 def main() -> int:
     args = _parse_args()
     videos = _validate_videos(args.videos)
+    prepared_videos, prepared_video_metadata = _prepare_benchmark_videos(
+        videos,
+        target_duration_seconds=args.extend_seconds,
+        prepared_video_dir=args.prepared_video_dir,
+    )
+    benchmark_videos = prepared_videos or videos
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    process_workers = args.process_workers or len(videos)
+    process_workers = args.process_workers or len(benchmark_videos)
 
     summary: dict[str, Any] = {
-        "videos": videos,
-        "video_count": len(videos),
+        "source_videos": videos,
+        "videos": benchmark_videos,
+        "video_count": len(benchmark_videos),
         "model_path": args.model_path,
         "tracker_config": args.tracker_config,
+        "extend_seconds": args.extend_seconds,
+        "prepared_video_dir": args.prepared_video_dir if args.extend_seconds > 0 else None,
+        "prepared_videos": prepared_video_metadata,
         "gpu_info": _query_gpu_info(),
         "results": [],
     }
@@ -279,7 +409,7 @@ def main() -> int:
                 mode_name,
                 repeat_count=args.repeat,
                 runner=lambda: _run_sequential_shared_model(
-                    videos=videos,
+                    videos=benchmark_videos,
                     model_path=args.model_path,
                     tracker_config=args.tracker_config,
                 ),
@@ -289,7 +419,7 @@ def main() -> int:
                 mode_name,
                 repeat_count=args.repeat,
                 runner=lambda: _run_multistream_shared_model(
-                    videos=videos,
+                    videos=benchmark_videos,
                     model_path=args.model_path,
                     tracker_config=args.tracker_config,
                 ),
@@ -299,7 +429,7 @@ def main() -> int:
                 mode_name,
                 repeat_count=args.repeat,
                 runner=lambda: _run_process_parallel_models(
-                    videos=videos,
+                    videos=benchmark_videos,
                     model_path=args.model_path,
                     tracker_config=args.tracker_config,
                     worker_count=process_workers,

@@ -27,4 +27,4 @@ ENV HOME=/home/cowbook \
 USER cowbook
 
 ENTRYPOINT ["python", "-m", "cowbook.tools.benchmark_tracking"]
-CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--repeat", "1", "--output", "var/benchmarks/a40_tracking_benchmark.json"]
+CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--extend-seconds", "600", "--repeat", "1", "--output", "var/benchmarks/a40_tracking_benchmark_600s.json"]
