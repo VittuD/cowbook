@@ -10,6 +10,18 @@ ProgressEventSink = Callable[[str, dict[str, Any]], None]
 
 @dataclass(slots=True)
 class TrackingProgressReporter:
+    """Shared progress adapter for tracking-related stages.
+
+    This helper emits milestone-based progress in two forms:
+
+    - human-readable console logs when ``log_progress`` is enabled
+    - structured ``JobEvent`` payloads through a bound ``JobReporter`` or an
+      explicit sink callback
+
+    The same helper is used by both the direct tracking path and the cleanup
+    tracking path so progress semantics remain consistent.
+    """
+
     tracking_mode: str
     stage_name: str
     video_path: str
@@ -22,6 +34,8 @@ class TrackingProgressReporter:
     _last_progress_frame: int = field(default=0, init=False)
 
     def stage_started(self) -> None:
+        """Emit a started event for the configured stage."""
+
         payload = self._base_payload()
         if self.frame_total is not None:
             payload["frame_total"] = self.frame_total
@@ -33,6 +47,8 @@ class TrackingProgressReporter:
             )
 
     def frame_progress(self, frame_current: int, frame_total: int | None = None) -> None:
+        """Emit a milestone progress update when ``frame_current`` crosses a checkpoint."""
+
         if frame_total is not None:
             self.frame_total = frame_total
         if not self._should_emit_milestone(frame_current):
@@ -53,10 +69,12 @@ class TrackingProgressReporter:
                 print(
                     f"[tracking] {self.stage_name}: {self.video_path} frame {frame_current}",
                     flush=True,
-                )
+            )
         self._last_progress_frame = frame_current
 
     def stage_completed(self) -> None:
+        """Emit a completed event for the configured stage."""
+
         payload = self._base_payload()
         if self.frame_total is not None:
             payload["frame_total"] = self.frame_total
@@ -68,6 +86,8 @@ class TrackingProgressReporter:
             )
 
     def _base_payload(self) -> dict[str, Any]:
+        """Build the common event payload fields for this stage."""
+
         payload: dict[str, Any] = {
             "tracking_mode": self.tracking_mode,
             "stage_name": self.stage_name,
@@ -78,6 +98,8 @@ class TrackingProgressReporter:
         return payload
 
     def _emit_event(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Send one structured progress event to the configured sink."""
+
         if self.event_sink is not None:
             self.event_sink(event_type, payload)
             return
@@ -90,6 +112,8 @@ class TrackingProgressReporter:
             )
 
     def _should_emit_milestone(self, frame_current: int) -> bool:
+        """Return whether ``frame_current`` should be reported as a progress checkpoint."""
+
         if frame_current <= 1:
             return True
         if self.frame_total is not None and self.frame_total > 0:

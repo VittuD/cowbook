@@ -6,6 +6,7 @@ pipeline. It does not schedule or persist jobs. It defines:
 - the event stream emitted during a run
 - the aggregated run snapshot derived from those events
 - observer helpers that consume the stream
+- shared progress helpers that translate long-running stages into events and logs
 - cooperative cancellation primitives
 
 ## Run Models
@@ -25,6 +26,10 @@ pipeline. It does not schedule or persist jobs. It defines:
 ::: cowbook.execution.observers.CompositeObserver
 
 ::: cowbook.execution.observers.InMemoryJobStore
+
+## Progress
+
+::: cowbook.execution.progress.TrackingProgressReporter
 
 ## Cancellation
 

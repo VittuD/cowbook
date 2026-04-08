@@ -120,10 +120,11 @@ Common CLI overrides:
 ```bash
 python -m cowbook --config configs/full.cpu.json --fps 12 --output-video-filename run.mp4
 python -m cowbook --config configs/full.cpu.json --mask-videos
+python -m cowbook --config configs/full.cpu.json --log-progress
 python -m cowbook --config configs/full.cpu.json --no-clean-frames-after-video
 ```
 
-Supported overrides are intentionally small: frame rate, output filename, output image format, plot workers, tracking workers, projection-video creation, frame cleanup, and whether video masking runs before inference.
+Supported overrides are intentionally small: frame rate, output filename, output image format, plot workers, tracking concurrency, progress logging, projection-video creation, frame cleanup, and whether video masking runs before inference.
 
 ## Python Embedding
 
@@ -144,9 +145,10 @@ Package-facing exports are `PipelineRunner`, `PipelineConfig`, `JobRun`, `JobEve
 
 ## Docker
 
-One Docker image is included:
+Docker images included:
 
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
+- `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 
 The image:
 
@@ -160,6 +162,12 @@ Build the image:
 
 ```bash
 docker build -f docker/Dockerfile -t cowbook .
+```
+
+Build the cleanup benchmark image:
+
+```bash
+docker build -f docker/Dockerfile.a40-cleanup -t cowbook-a40-cleanup .
 ```
 
 Run it on CPU and persist outputs on the host:
@@ -198,6 +206,8 @@ Notes:
 
 To override configs or assets from the host instead of using the copies baked into the image, mount them into `/app`.
 
+The cleanup benchmark image runs the optional `tracking_cleanup` path on prepared long videos, saves tracking JSON and annotated tracking videos, renders projected barn frames, and assembles a combined projection video. Its current defaults target `/scratch/vet/var/...` and enable `--log-progress`.
+
 ## Config Model
 
 The runtime contract is a JSON config plus a small CLI override surface.
@@ -219,6 +229,7 @@ Minimal example:
   "convert_to_csv": true,
   "num_plot_workers": 0,
   "tracking_concurrency": 1,
+  "log_progress": false,
   "video_groups": [
     [
       { "path": "sample_data/videos/Ch1_60.mp4", "camera_nr": 1 }
@@ -231,6 +242,7 @@ Notes:
 
 - input paths may be videos or precomputed tracking JSON files
 - `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
+- `log_progress` enables human-readable milestone logs for long tracking stages
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`
 - optional tracking cleanup lives under `tracking_cleanup`
@@ -311,6 +323,7 @@ Current shape:
 
 - job lifecycle events
 - stage events such as config, masking, tracking, processing, merge, export, and video
+- tracking-internal stage events such as `direct`, `detect`, `cleanup_pass1`, `cleanup_pass2`, `preprocess`, `prune`, and `postprocess`
 - artifact events for generated JSON, CSV, directories, and videos
 
 This is implemented under [src/cowbook/execution](src/cowbook/execution).
@@ -318,7 +331,7 @@ This is implemented under [src/cowbook/execution](src/cowbook/execution).
 Design intent:
 
 - the pipeline publishes structured events
-- the CLI consumes them as logs today
+- `--log-progress` adds human-readable milestone logs for long tracking stages
 - another caller can attach its own observer without changing the pipeline core
 
 ## Assets
