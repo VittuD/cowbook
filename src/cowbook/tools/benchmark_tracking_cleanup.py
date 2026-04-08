@@ -82,37 +82,6 @@ def _log_progress(enabled: bool, message: str) -> None:
         print(message, flush=True)
 
 
-def _make_frame_progress_logger(video_path: str, enabled: bool):
-    if not enabled:
-        return None
-
-    last_reported: dict[str, int] = {}
-
-    def _callback(stage: str, current: int, total: int | None) -> None:
-        previous = last_reported.get(stage, 0)
-        if total and total > 0:
-            interval = max(100, total // 20)
-            should_report = current == total or current == 1 or current - previous >= interval
-            if should_report:
-                _log_progress(
-                    True,
-                    f"[cleanup] {stage}: {video_path} frame {current}/{total}",
-                )
-                last_reported[stage] = current
-            return
-
-        interval = 300
-        should_report = current == 1 or current - previous >= interval
-        if should_report:
-            _log_progress(
-                True,
-                f"[cleanup] {stage}: {video_path} frame {current}",
-            )
-            last_reported[stage] = current
-
-    return _callback
-
-
 def _track_cleanup_worker(
     video_path: str,
     output_json_path: str,
@@ -130,14 +99,14 @@ def _track_cleanup_worker(
 
     start = time.perf_counter()
     _log_progress(log_progress, f"[cleanup] start: {video_path}")
-    progress_callback = _make_frame_progress_logger(video_path, log_progress)
     track_video_with_yolo(
         video_path,
         output_json_path,
         model_path,
         save=save_tracking_video,
         tracking_cleanup=tracking_cleanup,
-        progress_callback=progress_callback,
+        log_progress=log_progress,
+        camera_nr=_infer_camera_nr(video_path),
     )
     elapsed_s = time.perf_counter() - start
     _log_progress(log_progress, f"[cleanup] done: {video_path} in {elapsed_s:.2f}s")

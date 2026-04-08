@@ -288,6 +288,7 @@ class PipelineConfig:
     convert_to_csv: bool = True
     clean_frames_after_video: bool = True
     tracking_concurrency: int = 1
+    log_progress: bool = False
     tracking_cleanup: TrackingCleanupConfig = field(default_factory=TrackingCleanupConfig)
     mask_videos: bool = False
     masked_video_folder: str = "var/cache/masked_videos"
@@ -323,6 +324,7 @@ class PipelineConfig:
             convert_to_csv=bool(data.get("convert_to_csv", True)),
             clean_frames_after_video=bool(data.get("clean_frames_after_video", True)),
             tracking_concurrency=int(data.get("tracking_concurrency", 1)),
+            log_progress=bool(data.get("log_progress", False)),
             tracking_cleanup=TrackingCleanupConfig.from_mapping(data.get("tracking_cleanup")),
             mask_videos=bool(data.get("mask_videos", False)),
             masked_video_folder=str(data.get("masked_video_folder", "var/cache/masked_videos")),
@@ -354,6 +356,7 @@ class PipelineConfig:
             "convert_to_csv": self.convert_to_csv,
             "clean_frames_after_video": self.clean_frames_after_video,
             "tracking_concurrency": self.tracking_concurrency,
+            "log_progress": self.log_progress,
             "tracking_cleanup": self.tracking_cleanup.to_dict(),
             "mask_videos": self.mask_videos,
             "masked_video_folder": self.masked_video_folder,

@@ -16,6 +16,8 @@ from cowbook.core.contracts import (
     TrackingLabel,
 )
 from cowbook.core.runtime import assets_root
+from cowbook.execution.observers import JobReporter
+from cowbook.execution.progress import TrackingProgressReporter
 from cowbook.vision.cleanup import (
     compute_short_track_ids,
     postprocess_tracking_document,
@@ -29,7 +31,18 @@ from cowbook.vision.tracking_cleanup import (
 
 logger = logging.getLogger(__name__)
 
-def _track_video_direct(video_path, output_json_path, model_path, save=False):
+def _track_video_direct(
+    video_path,
+    output_json_path,
+    model_path,
+    save=False,
+    *,
+    log_progress: bool = False,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    camera_nr: int | None = None,
+    progress_event_sink=None,
+):
     """
     Track objects in a video using YOLOv8 and save results as a JSON file.
 
@@ -61,9 +74,29 @@ def _track_video_direct(video_path, output_json_path, model_path, save=False):
         tracker=str(assets_root() / "trackers" / "cows_botsort.yaml"),
     )
     frames: list[TrackingFrame] = []
+    progress_reporter = TrackingProgressReporter(
+        tracking_mode="direct",
+        stage_name="direct",
+        video_path=video_path,
+        camera_nr=camera_nr,
+        frame_total=total_frames or None,
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+        event_sink=progress_event_sink,
+    )
+    if log_progress or reporter is not None or progress_event_sink is not None:
+        progress_reporter.stage_started()
 
     # Process each frame and collect tracking data
-    for frame_num, result in enumerate(tqdm(results, desc="Tracking video", total=total_frames)):
+    iterable = (
+        results
+        if (log_progress or reporter is not None or progress_event_sink is not None)
+        else tqdm(results, desc="Tracking video", total=total_frames)
+    )
+    for frame_num, result in enumerate(iterable):
+        if log_progress or reporter is not None or progress_event_sink is not None:
+            progress_reporter.frame_progress(frame_num + 1, total_frames or None)
         boxes: list[list[float]] = []
         labels: list[TrackingLabel] = []
         for box in result.boxes:
@@ -95,6 +128,8 @@ def _track_video_direct(video_path, output_json_path, model_path, save=False):
     with open(output_json_path, 'w') as f:
         json.dump(json_data, f, indent=4)
     logger.info("Tracking data saved to %s", output_json_path)
+    if log_progress or reporter is not None or progress_event_sink is not None:
+        progress_reporter.stage_completed()
 
     # Unload the model to free resources
     del model
@@ -107,43 +142,120 @@ def _track_video_with_cleanup(
     *,
     save: bool,
     cleanup_config: TrackingCleanupConfig,
-    progress_callback=None,
+    log_progress: bool = False,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    camera_nr: int | None = None,
+    progress_event_sink=None,
 ) -> None:
     tracker_yaml_path = assets_root() / "trackers" / "cows_botsort.yaml"
+    detect_progress = TrackingProgressReporter(
+        tracking_mode="cleanup",
+        stage_name="detect",
+        video_path=video_path,
+        camera_nr=camera_nr,
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+        event_sink=progress_event_sink,
+    )
+    detect_progress.stage_started()
     detection_frames = detect_video_to_frames(
         video_path,
         model_path,
         cleanup_config,
-        progress_callback=progress_callback,
+        progress_reporter=detect_progress,
     )
+    detect_progress.stage_completed()
+
+    preprocess_progress = TrackingProgressReporter(
+        tracking_mode="cleanup",
+        stage_name="preprocess",
+        video_path=video_path,
+        camera_nr=camera_nr,
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+        event_sink=progress_event_sink,
+    )
+    preprocess_progress.stage_started()
     preprocessed_frames = preprocess_detection_frames(detection_frames, cleanup_config)
+    preprocess_progress.stage_completed()
     video_output_path = None
     if save:
         video_output_path = str(Path(output_json_path).with_suffix(".mp4"))
 
+    pass1_progress = TrackingProgressReporter(
+        tracking_mode="cleanup",
+        stage_name="cleanup_pass1",
+        video_path=video_path,
+        camera_nr=camera_nr,
+        frame_total=len(preprocessed_frames),
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+        event_sink=progress_event_sink,
+    )
+    pass1_progress.stage_started()
     tracked = track_from_detection_frames(
         video_path,
         preprocessed_frames,
         tracker_yaml_path,
         save_video_path=video_output_path,
-        progress_callback=progress_callback,
-        progress_stage="track_pass1",
+        progress_reporter=pass1_progress,
     )
+    pass1_progress.stage_completed()
 
     if cleanup_config.two_pass_prune_short_tracks:
+        prune_progress = TrackingProgressReporter(
+            tracking_mode="cleanup",
+            stage_name="prune",
+            video_path=video_path,
+            camera_nr=camera_nr,
+            log_progress=log_progress,
+            reporter=reporter,
+            group_idx=group_idx,
+            event_sink=progress_event_sink,
+        )
+        prune_progress.stage_started()
         short_track_ids = compute_short_track_ids(tracked, cleanup_config.min_track_length)
         pruned_frames = prune_detection_frames_by_track_ids(preprocessed_frames, tracked, short_track_ids)
+        prune_progress.stage_completed()
+        pass2_progress = TrackingProgressReporter(
+            tracking_mode="cleanup",
+            stage_name="cleanup_pass2",
+            video_path=video_path,
+            camera_nr=camera_nr,
+            frame_total=len(pruned_frames),
+            log_progress=log_progress,
+            reporter=reporter,
+            group_idx=group_idx,
+            event_sink=progress_event_sink,
+        )
+        pass2_progress.stage_started()
         tracked = track_from_detection_frames(
             video_path,
             pruned_frames,
             tracker_yaml_path,
             save_video_path=video_output_path,
-            progress_callback=progress_callback,
-            progress_stage="track_pass2",
+            progress_reporter=pass2_progress,
         )
+        pass2_progress.stage_completed()
 
     if cleanup_config.postprocess_smoothing:
+        postprocess_progress = TrackingProgressReporter(
+            tracking_mode="cleanup",
+            stage_name="postprocess",
+            video_path=video_path,
+            camera_nr=camera_nr,
+            log_progress=log_progress,
+            reporter=reporter,
+            group_idx=group_idx,
+            event_sink=progress_event_sink,
+        )
+        postprocess_progress.stage_started()
         tracked = postprocess_tracking_document(tracked, cleanup_config)
+        postprocess_progress.stage_completed()
 
     with open(output_json_path, "w") as f:
         json.dump(tracked.to_dict(), f, indent=4)
@@ -156,7 +268,11 @@ def track_video_with_yolo(
     model_path,
     save=False,
     tracking_cleanup: dict | None = None,
-    progress_callback=None,
+    log_progress: bool = False,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    camera_nr: int | None = None,
+    progress_event_sink=None,
 ):
     cleanup_config = TrackingCleanupConfig.from_mapping(tracking_cleanup)
     if cleanup_config.enabled:
@@ -166,10 +282,24 @@ def track_video_with_yolo(
             model_path,
             save=save,
             cleanup_config=cleanup_config,
-            progress_callback=progress_callback,
+            log_progress=log_progress,
+            reporter=reporter,
+            group_idx=group_idx,
+            camera_nr=camera_nr,
+            progress_event_sink=progress_event_sink,
         )
         return
-    _track_video_direct(video_path, output_json_path, model_path, save=save)
+    _track_video_direct(
+        video_path,
+        output_json_path,
+        model_path,
+        save=save,
+        log_progress=log_progress,
+        reporter=reporter,
+        group_idx=group_idx,
+        camera_nr=camera_nr,
+        progress_event_sink=progress_event_sink,
+    )
 
 def load_yolo_model(model_path):
     """

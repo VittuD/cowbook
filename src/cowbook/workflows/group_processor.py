@@ -1,8 +1,11 @@
 # group_processor.py
 
 import logging
+import multiprocessing as _mp_std
 import multiprocessing as mp
 import os
+import time
+from queue import Empty
 from typing import List, Tuple
 
 from cowbook.execution import CancellationToken, JobCancelledError, JobReporter
@@ -26,6 +29,10 @@ def _tracking_worker(
     model_ref: str,
     save: bool,
     tracking_cleanup: dict | None = None,
+    camera_nr: int | None = None,
+    log_progress: bool = False,
+    group_idx: int | None = None,
+    progress_queue=None,
 ) -> Tuple[str | None, str | None]:
     """
     Run tracking for a single video in a separate process.
@@ -41,13 +48,43 @@ def _tracking_worker(
         pass
 
     try:
+        progress_event_sink = None
+        if progress_queue is not None:
+            def progress_event_sink(event_type: str, payload: dict) -> None:
+                progress_queue.put(
+                    {
+                        "event_type": event_type,
+                        "group_idx": group_idx,
+                        "payload": payload,
+                    }
+                )
         kwargs = {"save": save}
         if tracking_cleanup and tracking_cleanup.get("enabled"):
             kwargs["tracking_cleanup"] = tracking_cleanup
+        kwargs["log_progress"] = log_progress
+        kwargs["camera_nr"] = camera_nr
+        if progress_event_sink is not None:
+            kwargs["progress_event_sink"] = progress_event_sink
         track_video_with_yolo(video_path, output_json, model_ref, **kwargs)
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
+
+
+def _drain_tracking_progress_queue(progress_queue, reporter: JobReporter | None) -> None:
+    if reporter is None or progress_queue is None:
+        return
+    while True:
+        try:
+            item = progress_queue.get_nowait()
+        except Empty:
+            break
+        reporter.emit(
+            item["event_type"],
+            stage="tracking",
+            group_idx=item.get("group_idx"),
+            payload=item.get("payload", {}),
+        )
 
 
 def _json_to_csv(json_path: str) -> str | None:
@@ -167,8 +204,52 @@ def process_video_group(
             )
 
         ctx = mp.get_context("spawn")
-        with ctx.Pool(processes=effective_tracking_concurrency) as pool:
-            results = pool.starmap(_tracking_worker, [task[:5] for task in tasks])
+        log_progress = bool(config.get("log_progress", False))
+        if reporter is None:
+            with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+                results = pool.starmap(
+                    _tracking_worker,
+                    [
+                        (
+                            video_path,
+                            output_json,
+                            model_ref,
+                            save,
+                            tracking_cleanup,
+                            camera_nr,
+                            log_progress,
+                            group_idx,
+                            None,
+                        )
+                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
+                    ],
+                )
+        else:
+            with _mp_std.Manager() as manager:
+                progress_queue = manager.Queue()
+                with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+                    async_results = [
+                        pool.apply_async(
+                            _tracking_worker,
+                            (
+                                video_path,
+                                output_json,
+                                model_ref,
+                                save,
+                                tracking_cleanup,
+                                camera_nr,
+                                log_progress,
+                                group_idx,
+                                progress_queue,
+                            ),
+                        )
+                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
+                    ]
+                    while not all(result.ready() for result in async_results):
+                        _drain_tracking_progress_queue(progress_queue, reporter)
+                        time.sleep(0.1)
+                    _drain_tracking_progress_queue(progress_queue, reporter)
+                    results = [result.get() for result in async_results]
         _raise_if_cancelled(cancellation_token)
 
         for (output_json, err), (_, _, _, _, _, camera_nr) in zip(results, tasks):

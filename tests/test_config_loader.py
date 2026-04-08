@@ -24,6 +24,7 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
     assert config["save_tracking_video"] is False
     assert config["create_projection_video"] is True
     assert config["tracking_concurrency"] == 1
+    assert config["log_progress"] is False
     assert config["mask_videos"] is False
     assert config["video_groups"][0][0]["camera_nr"] == 1
     assert config["runtime_root"] == "var"
@@ -50,12 +51,14 @@ def test_load_config_applies_explicit_overrides(tmp_path):
             "fps": 15,
             "output_image_format": "png",
             "create_projection_video": False,
+            "log_progress": True,
         },
     )
 
     assert config["fps"] == 15
     assert config["output_image_format"] == "png"
     assert config["create_projection_video"] is False
+    assert config["log_progress"] is True
 
 
 def test_load_config_derives_run_scoped_output_paths(tmp_path):

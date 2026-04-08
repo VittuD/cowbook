@@ -10,6 +10,31 @@ from cowbook.workflows import group_processor as package_group_processor
 from cowbook.workflows.group_processor import _json_to_csv, process_video_group
 
 
+class _FakeAsyncResult:
+    def __init__(self, value):
+        self._value = value
+
+    def ready(self):
+        return True
+
+    def get(self):
+        return self._value
+
+
+class _FakeManager:
+    def __enter__(self):
+        import queue
+
+        self._queue = queue.Queue()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def Queue(self):
+        return self._queue
+
+
 def test_json_to_csv_converts_single_processed_json(fixtures_dir: Path, tmp_path):
     processed_json = tmp_path / "processed.json"
     shutil.copyfile(fixtures_dir / "processed_tracking_minimal.json", processed_json)
@@ -179,6 +204,13 @@ def test_process_video_group_reports_requested_and_effective_tracking_concurrenc
                 (str(second_json), None),
             ]
 
+        def apply_async(self, func, args):
+            assert self.processes == 2
+            video_path = args[0]
+            if video_path == "cam1.mp4":
+                return _FakeAsyncResult((str(first_json), None))
+            return _FakeAsyncResult((str(second_json), None))
+
     monkeypatch.setattr(
         package_group_processor,
         "mp",
@@ -186,6 +218,7 @@ def test_process_video_group_reports_requested_and_effective_tracking_concurrenc
             get_context=lambda _name: SimpleNamespace(Pool=lambda processes: FakePool(processes))
         ),
     )
+    monkeypatch.setattr(package_group_processor._mp_std, "Manager", lambda: _FakeManager())
     monkeypatch.setattr(
         package_group_processor,
         "process_and_save_frames",

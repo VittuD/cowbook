@@ -194,6 +194,7 @@ def load_config(config_path, overrides=None):
         config.setdefault("clean_frames_after_video", True)
         # Tracking concurrency (default to 1 to avoid GPU contention)
         config.setdefault("tracking_concurrency", 1)
+        config.setdefault("log_progress", False)
         config.setdefault("tracking_cleanup", {})
         # ---- Masking at inference ----
         config.setdefault("mask_videos", False)
@@ -230,6 +231,7 @@ def load_config(config_path, overrides=None):
             raise ValueError(f"'fps' must be an integer (got {config.get('fps')!r}).") from e
 
         _normalize_positive_int(config, "tracking_concurrency")
+        config["log_progress"] = bool(config.get("log_progress", False))
         _normalize_tracking_cleanup(config)
 
         # image format normalized

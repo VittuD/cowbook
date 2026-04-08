@@ -21,10 +21,37 @@ class _FakePool:
     def starmap(self, func, tasks):
         return [func(*task) for task in tasks]
 
+    def apply_async(self, func, args):
+        class _FakeAsyncResult:
+            def __init__(self, value):
+                self._value = value
+
+            def ready(self):
+                return True
+
+            def get(self):
+                return self._value
+
+        return _FakeAsyncResult(func(*args))
+
 
 class _FakeContext:
     def Pool(self, processes):
         return _FakePool()
+
+
+class _FakeManager:
+    def __enter__(self):
+        import queue
+
+        self._queue = queue.Queue()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def Queue(self):
+        return self._queue
 
 
 def _write_tiny_video(path: Path, frames: int = 3) -> None:
@@ -102,11 +129,12 @@ def test_main_video_input_pipeline_works_with_stubbed_tracking(fixtures_dir: Pat
     input_video = tmp_path / "clip.mp4"
     _write_tiny_video(input_video)
 
-    def fake_track_video_with_yolo(video_path, output_json_path, model_path, save=False):
+    def fake_track_video_with_yolo(video_path, output_json_path, model_path, save=False, **_kwargs):
         shutil.copyfile(source_fixture, output_json_path)
 
     monkeypatch.setattr(group_processor, "track_video_with_yolo", fake_track_video_with_yolo)
     monkeypatch.setattr(group_processor.mp, "get_context", lambda _: _FakeContext())
+    monkeypatch.setattr(group_processor._mp_std, "Manager", lambda: _FakeManager())
 
     config = {
         "model_path": "models/yolov11_best.pt",

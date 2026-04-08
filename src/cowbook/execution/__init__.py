@@ -7,6 +7,7 @@ from cowbook.execution.observers import (
     JobReporter,
     NullObserver,
 )
+from cowbook.execution.progress import TrackingProgressReporter
 
 __all__ = [
     "CancellationToken",
@@ -19,5 +20,6 @@ __all__ = [
     "JobReporter",
     "JobRun",
     "NullObserver",
+    "TrackingProgressReporter",
     "new_job_id",
 ]
