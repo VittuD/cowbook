@@ -150,7 +150,7 @@ The image:
 
 - uses `ultralytics/ultralytics:8.4.34` as the base
 - copies the repo into `/app`
-- installs the package in editable mode
+- installs the package from `pyproject.toml` in editable mode
 - includes the current `assets/`, `configs/`, `models/`, and `sample_data/`
 - defaults to `python -m cowbook --config config.json`
 
