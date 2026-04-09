@@ -99,6 +99,8 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
         hybrid_iou_guard=0.02,
         hybrid_footpoint_dist_k=0.40,
         hybrid_footpoint_dist_min_px=36.0,
+        min_area_ratio=0.0025,
+        max_area_ratio=0.15,
         drop_edge_boxes=True,
         edge_margin_px=28,
         two_pass_prune_short_tracks=False,
@@ -441,33 +443,58 @@ def _select_cleanup_keep_indices(
         return np.zeros((0,), dtype=np.int64)
 
     area = widths * heights
+    frame_area = max(1.0, float(frame.orig_img.shape[0] * frame.orig_img.shape[1]))
+    area_ratio = area / frame_area
     aspect_ratio = widths / np.maximum(heights, 1e-9)
 
     if cleanup_config.min_area_px is not None:
         area_keep = area >= float(cleanup_config.min_area_px)
-        keep, xyxy, conf, area, aspect_ratio = (
+        keep, xyxy, conf, area, area_ratio, aspect_ratio = (
             keep[area_keep],
             xyxy[area_keep],
             conf[area_keep],
             area[area_keep],
+            area_ratio[area_keep],
             aspect_ratio[area_keep],
         )
     if cleanup_config.max_area_px is not None and conf.size:
         area_keep = area <= float(cleanup_config.max_area_px)
-        keep, xyxy, conf, area, aspect_ratio = (
+        keep, xyxy, conf, area, area_ratio, aspect_ratio = (
             keep[area_keep],
             xyxy[area_keep],
             conf[area_keep],
             area[area_keep],
+            area_ratio[area_keep],
+            aspect_ratio[area_keep],
+        )
+    if cleanup_config.min_area_ratio is not None and conf.size:
+        area_keep = area_ratio >= float(cleanup_config.min_area_ratio)
+        keep, xyxy, conf, area, area_ratio, aspect_ratio = (
+            keep[area_keep],
+            xyxy[area_keep],
+            conf[area_keep],
+            area[area_keep],
+            area_ratio[area_keep],
+            aspect_ratio[area_keep],
+        )
+    if cleanup_config.max_area_ratio is not None and conf.size:
+        area_keep = area_ratio <= float(cleanup_config.max_area_ratio)
+        keep, xyxy, conf, area, area_ratio, aspect_ratio = (
+            keep[area_keep],
+            xyxy[area_keep],
+            conf[area_keep],
+            area[area_keep],
+            area_ratio[area_keep],
             aspect_ratio[area_keep],
         )
     if cleanup_config.min_aspect_ratio is not None and conf.size:
         aspect_keep = aspect_ratio >= float(cleanup_config.min_aspect_ratio)
-        keep, xyxy, conf, area, aspect_ratio = (
+        keep, xyxy, conf, area, area_ratio, aspect_ratio = (
             keep[aspect_keep],
             xyxy[aspect_keep],
             conf[aspect_keep],
             area[aspect_keep],
+            area_ratio[aspect_keep],
             aspect_ratio[aspect_keep],
         )
     if cleanup_config.max_aspect_ratio is not None and conf.size:

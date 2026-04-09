@@ -41,11 +41,19 @@ Optional `tracking_cleanup` adds an alternate tracking path that:
 
 - preprocesses detections before tracking
 - preserves detection lineage with `det_idx`
+- can reject boxes outside a believable size range using absolute pixel area and/or frame-area ratios
 - can prune short-lived tracks using both a gap-tolerant consecutive streak rule and an optional total-observation threshold
 - can gap-fill short tracking holes after tracking when explicitly enabled
 - can smooth final output boxes after tracking
 
 For short-track pruning, `min_track_length` means the minimum surviving streak length rather than the total observation count. Small gaps are tolerated via `short_track_gap_tolerance`, which defaults to `6` frames. An additional `min_track_total_observations` threshold can require a minimum overall observation count as a second filter. A track survives pruning only if it passes every enabled threshold.
+
+Area-based cleanup supports two coordinate systems:
+
+- `min_area_px` / `max_area_px`: absolute box area after clipping, in pixels
+- `min_area_ratio` / `max_area_ratio`: box area divided by full frame area after clipping, in `[0, 1]`
+
+The ratio-based filters are usually the better default for experiments that may change `imgsz`, because they remain stable as the rendered frame resolution changes.
 
 Temporal cleanup is split into two independent controls:
 

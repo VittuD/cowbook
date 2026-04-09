@@ -58,6 +58,8 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         "hybrid_footpoint_dist_min_px": 10.0,
         "min_area_px": None,
         "max_area_px": None,
+        "min_area_ratio": None,
+        "max_area_ratio": None,
         "min_aspect_ratio": None,
         "max_aspect_ratio": None,
         "drop_edge_boxes": False,
@@ -107,6 +109,12 @@ def _normalize_tracking_cleanup(config: dict) -> None:
     )
     cleanup["max_area_px"] = _optional_float(
         cleanup.get("max_area_px"), "tracking_cleanup.max_area_px"
+    )
+    cleanup["min_area_ratio"] = _optional_float(
+        cleanup.get("min_area_ratio"), "tracking_cleanup.min_area_ratio"
+    )
+    cleanup["max_area_ratio"] = _optional_float(
+        cleanup.get("max_area_ratio"), "tracking_cleanup.max_area_ratio"
     )
     cleanup["min_aspect_ratio"] = _optional_float(
         cleanup.get("min_aspect_ratio"), "tracking_cleanup.min_aspect_ratio"
@@ -171,6 +179,22 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         and cleanup["min_area_px"] > cleanup["max_area_px"]
     ):
         raise ValueError("tracking_cleanup.min_area_px must be <= tracking_cleanup.max_area_px.")
+    if cleanup["min_area_ratio"] is not None and (
+        cleanup["min_area_ratio"] < 0 or cleanup["min_area_ratio"] > 1
+    ):
+        raise ValueError("tracking_cleanup.min_area_ratio must be in [0, 1].")
+    if cleanup["max_area_ratio"] is not None and (
+        cleanup["max_area_ratio"] < 0 or cleanup["max_area_ratio"] > 1
+    ):
+        raise ValueError("tracking_cleanup.max_area_ratio must be in [0, 1].")
+    if (
+        cleanup["min_area_ratio"] is not None
+        and cleanup["max_area_ratio"] is not None
+        and cleanup["min_area_ratio"] > cleanup["max_area_ratio"]
+    ):
+        raise ValueError(
+            "tracking_cleanup.min_area_ratio must be <= tracking_cleanup.max_area_ratio."
+        )
     if (
         cleanup["min_aspect_ratio"] is not None
         and cleanup["max_aspect_ratio"] is not None

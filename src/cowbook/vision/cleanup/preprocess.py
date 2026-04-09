@@ -215,33 +215,58 @@ def filter_detection_frame(frame: DetectionFrame, cleanup_config: TrackingCleanu
         return DetectionFrame(frame_idx=frame.frame_idx, shape=frame.shape, xyxy=xyxy, conf=conf, cls=cls)
 
     area = widths * heights
+    frame_area = max(1.0, float(frame.shape[0] * frame.shape[1]))
+    area_ratio = area / frame_area
     aspect_ratio = widths / np.maximum(heights, 1e-9)
 
     if cleanup_config.min_area_px is not None:
         keep_mask = area >= float(cleanup_config.min_area_px)
-        xyxy, conf, cls, area, aspect_ratio = (
+        xyxy, conf, cls, area, area_ratio, aspect_ratio = (
             xyxy[keep_mask],
             conf[keep_mask],
             cls[keep_mask],
             area[keep_mask],
+            area_ratio[keep_mask],
             aspect_ratio[keep_mask],
         )
     if cleanup_config.max_area_px is not None and conf.size:
         keep_mask = area <= float(cleanup_config.max_area_px)
-        xyxy, conf, cls, area, aspect_ratio = (
+        xyxy, conf, cls, area, area_ratio, aspect_ratio = (
             xyxy[keep_mask],
             conf[keep_mask],
             cls[keep_mask],
             area[keep_mask],
+            area_ratio[keep_mask],
+            aspect_ratio[keep_mask],
+        )
+    if cleanup_config.min_area_ratio is not None and conf.size:
+        keep_mask = area_ratio >= float(cleanup_config.min_area_ratio)
+        xyxy, conf, cls, area, area_ratio, aspect_ratio = (
+            xyxy[keep_mask],
+            conf[keep_mask],
+            cls[keep_mask],
+            area[keep_mask],
+            area_ratio[keep_mask],
+            aspect_ratio[keep_mask],
+        )
+    if cleanup_config.max_area_ratio is not None and conf.size:
+        keep_mask = area_ratio <= float(cleanup_config.max_area_ratio)
+        xyxy, conf, cls, area, area_ratio, aspect_ratio = (
+            xyxy[keep_mask],
+            conf[keep_mask],
+            cls[keep_mask],
+            area[keep_mask],
+            area_ratio[keep_mask],
             aspect_ratio[keep_mask],
         )
     if cleanup_config.min_aspect_ratio is not None and conf.size:
         keep_mask = aspect_ratio >= float(cleanup_config.min_aspect_ratio)
-        xyxy, conf, cls, area, aspect_ratio = (
+        xyxy, conf, cls, area, area_ratio, aspect_ratio = (
             xyxy[keep_mask],
             conf[keep_mask],
             cls[keep_mask],
             area[keep_mask],
+            area_ratio[keep_mask],
             aspect_ratio[keep_mask],
         )
     if cleanup_config.max_aspect_ratio is not None and conf.size:

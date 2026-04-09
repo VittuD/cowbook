@@ -97,6 +97,8 @@ class TrackingCleanupConfig:
     hybrid_footpoint_dist_min_px: float = 10.0
     min_area_px: float | None = None
     max_area_px: float | None = None
+    min_area_ratio: float | None = None
+    max_area_ratio: float | None = None
     min_aspect_ratio: float | None = None
     max_aspect_ratio: float | None = None
     drop_edge_boxes: bool = False
@@ -142,6 +144,16 @@ class TrackingCleanupConfig:
             ),
             max_area_px=(
                 float(data["max_area_px"]) if data.get("max_area_px") is not None else None
+            ),
+            min_area_ratio=(
+                float(data["min_area_ratio"])
+                if data.get("min_area_ratio") is not None
+                else None
+            ),
+            max_area_ratio=(
+                float(data["max_area_ratio"])
+                if data.get("max_area_ratio") is not None
+                else None
             ),
             min_aspect_ratio=(
                 float(data["min_aspect_ratio"])
@@ -190,6 +202,8 @@ class TrackingCleanupConfig:
             "hybrid_footpoint_dist_min_px": self.hybrid_footpoint_dist_min_px,
             "min_area_px": self.min_area_px,
             "max_area_px": self.max_area_px,
+            "min_area_ratio": self.min_area_ratio,
+            "max_area_ratio": self.max_area_ratio,
             "min_aspect_ratio": self.min_aspect_ratio,
             "max_aspect_ratio": self.max_aspect_ratio,
             "drop_edge_boxes": self.drop_edge_boxes,

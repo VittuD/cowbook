@@ -101,6 +101,38 @@ def test_filter_detection_frame_applies_edge_area_aspect_and_iou_filters():
     assert filtered.cls.tolist() == [1]
 
 
+def test_filter_detection_frame_applies_area_ratio_filters():
+    cleanup = TrackingCleanupConfig.from_mapping(
+        {
+            "enabled": True,
+            "nms_mode": "iou_nms",
+            "nms_iou": 0.5,
+            "min_area_ratio": 0.03,
+            "max_area_ratio": 0.20,
+        }
+    )
+    frame = DetectionFrame(
+        frame_idx=0,
+        shape=(100, 100),
+        xyxy=np.asarray(
+            [
+                [10, 10, 20, 20],   # 100 px -> 0.01, too small
+                [10, 10, 70, 70],   # 3600 px -> 0.36, too large
+                [20, 20, 60, 50],   # 1200 px -> 0.12, kept
+            ],
+            dtype=np.float32,
+        ),
+        conf=np.asarray([0.9, 0.9, 0.95], dtype=np.float32),
+        cls=np.asarray([0, 0, 1], dtype=np.int32),
+    )
+
+    filtered = filter_detection_frame(frame, cleanup)
+
+    assert filtered.xyxy.tolist() == [[20.0, 20.0, 60.0, 50.0]]
+    assert filtered.conf.tolist() == pytest.approx([0.95])
+    assert filtered.cls.tolist() == [1]
+
+
 def test_preprocess_detection_frames_runs_framewise_with_footpoint_mode():
     cleanup = TrackingCleanupConfig.from_mapping(
         {

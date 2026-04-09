@@ -330,6 +330,8 @@ Example cleanup block:
   "enabled": true,
   "conf_threshold": 0.15,
   "nms_mode": "hybrid_nms",
+  "min_area_ratio": 0.0025,
+  "max_area_ratio": 0.15,
   "two_pass_prune_short_tracks": true,
   "min_track_length": 30,
   "min_track_total_observations": 45,
@@ -339,7 +341,7 @@ Example cleanup block:
 }
 ```
 
-`min_track_length` refers to the longest surviving streak for a track rather than its total observation count. `short_track_gap_tolerance` controls how many missing frames are allowed inside that streak. `min_track_total_observations`, when set, adds a second threshold on total support across the full track. `postprocess_gap_fill` and `postprocess_smoothing` are independent temporal cleanup switches.
+`min_track_length` refers to the longest surviving streak for a track rather than its total observation count. `short_track_gap_tolerance` controls how many missing frames are allowed inside that streak. `min_track_total_observations`, when set, adds a second threshold on total support across the full track. `min_area_ratio` and `max_area_ratio` express box area as a fraction of the full frame area, which is usually a better fit than absolute pixel thresholds when `imgsz` can vary. `postprocess_gap_fill` and `postprocess_smoothing` are independent temporal cleanup switches.
 
 ## Output Layout
 
