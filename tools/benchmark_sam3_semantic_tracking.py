@@ -69,6 +69,16 @@ class Sam3FrameArtifacts:
     masks: np.ndarray
 
 
+@dataclass(slots=True)
+class Sam3CleanupStats:
+    raw_detection_count: int
+    prefiltered_detection_count: int
+    cleaned_detection_count: int
+    removed_by_prefilter: int
+    removed_by_short_tracks: int
+    short_track_count: int
+
+
 def _default_videos() -> list[str]:
     return [
         "sample_data/videos/Ch1_60.mp4",
@@ -100,6 +110,24 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
 def _log_progress(enabled: bool, message: str) -> None:
     if enabled:
         print(message, flush=True)
+
+
+def _maybe_log_frame_progress(
+    *,
+    enabled: bool,
+    video_path: str,
+    frame_index: int,
+    frame_count: int,
+    instance_count: int,
+    every_n_frames: int,
+) -> None:
+    if not enabled or every_n_frames <= 0:
+        return
+    if frame_index == 0 or ((frame_index + 1) % every_n_frames == 0) or ((frame_index + 1) == frame_count):
+        print(
+            f"[sam3] progress: {video_path} frame={frame_index + 1}/{frame_count} instances={instance_count}",
+            flush=True,
+        )
 
 
 def _validate_videos(video_paths: Iterable[str]) -> list[str]:
@@ -446,8 +474,10 @@ def _build_tracking_document(frames: list[Sam3FrameArtifacts]) -> TrackingDocume
 def _apply_cowbook_box_cleanup(
     frames: list[Sam3FrameArtifacts],
     cleanup_config: TrackingCleanupConfig,
-) -> tuple[list[Sam3FrameArtifacts], set[int]]:
+) -> tuple[list[Sam3FrameArtifacts], set[int], Sam3CleanupStats]:
+    raw_detection_count = int(sum(frame.xyxy.shape[0] for frame in frames))
     prefiltered = [_subset_frame(frame, _select_cleanup_keep_indices(frame, cleanup_config)) for frame in frames]
+    prefiltered_detection_count = int(sum(frame.xyxy.shape[0] for frame in prefiltered))
     document = _build_tracking_document(prefiltered)
     short_track_ids = compute_short_track_ids(document, cleanup_config.min_track_length)
 
@@ -461,7 +491,16 @@ def _apply_cowbook_box_cleanup(
             dtype=bool,
         )
         cleaned_frames.append(_subset_frame(frame, np.flatnonzero(keep)))
-    return cleaned_frames, short_track_ids
+    cleaned_detection_count = int(sum(frame.xyxy.shape[0] for frame in cleaned_frames))
+    stats = Sam3CleanupStats(
+        raw_detection_count=raw_detection_count,
+        prefiltered_detection_count=prefiltered_detection_count,
+        cleaned_detection_count=cleaned_detection_count,
+        removed_by_prefilter=max(0, raw_detection_count - prefiltered_detection_count),
+        removed_by_short_tracks=max(0, prefiltered_detection_count - cleaned_detection_count),
+        short_track_count=len(short_track_ids),
+    )
+    return cleaned_frames, short_track_ids, stats
 
 
 def _build_results_for_frame(frame: Sam3FrameArtifacts) -> Results:
@@ -503,6 +542,9 @@ def _write_overlay_videos(
     clean_path: Path,
     fps: float,
     prompts: list[str],
+    log_progress: bool = False,
+    log_every_frames: int = 25,
+    stage_label: str = "processed_overlays",
 ) -> tuple[float, int, list[int]]:
     if not frames:
         return 0.0, 0, []
@@ -525,6 +567,14 @@ def _write_overlay_videos(
             )
             writer.write(annotated)
             clean_writer.write(clean_annotated)
+            _maybe_log_frame_progress(
+                enabled=log_progress,
+                video_path=stage_label,
+                frame_index=frame.frame_index,
+                frame_count=len(frames),
+                instance_count=int(frame.xyxy.shape[0]),
+                every_n_frames=log_every_frames,
+            )
     finally:
         writer.release()
         clean_writer.release()
@@ -544,11 +594,13 @@ def _run_semantic_tracking_for_video(
     half: bool,
     dump_frame_metadata: bool,
     log_progress: bool,
+    log_every_frames: int,
 ) -> Sam3VideoRunResult:
     metadata = _probe_video_metadata(video_path)
     fps = float(metadata["fps"])
     width = int(metadata["width"])
     height = int(metadata["height"])
+    expected_frame_count = int(metadata["frame_count"])
 
     json_dir = output_root / "json"
     video_dir = output_root / "videos"
@@ -608,19 +660,54 @@ def _run_semantic_tracking_for_video(
             writer.write(annotated)
             clean_writer.write(clean_annotated)
             frame_count += 1
+            _maybe_log_frame_progress(
+                enabled=log_progress,
+                video_path=video_path,
+                frame_index=frame_index,
+                frame_count=expected_frame_count,
+                instance_count=int(summary["instance_count"]),
+                every_n_frames=log_every_frames,
+            )
     finally:
         writer.release()
         clean_writer.release()
 
     elapsed_s = time.perf_counter() - start
     mean_instances = (total_instances / frame_count) if frame_count else 0.0
-    processed_frames, short_track_ids = _apply_cowbook_box_cleanup(raw_frames, _default_cleanup_config())
+    _log_progress(log_progress, f"[sam3] cleanup: {video_path} frames={frame_count}")
+    cleanup_start = time.perf_counter()
+    processed_frames, short_track_ids, cleanup_stats = _apply_cowbook_box_cleanup(
+        raw_frames,
+        _default_cleanup_config(),
+    )
+    cleanup_elapsed_s = time.perf_counter() - cleanup_start
+    _log_progress(
+        log_progress,
+        (
+            f"[sam3] cleanup done: {video_path} raw={cleanup_stats.raw_detection_count} "
+            f"prefiltered={cleanup_stats.prefiltered_detection_count} "
+            f"cleaned={cleanup_stats.cleaned_detection_count} "
+            f"removed_prefilter={cleanup_stats.removed_by_prefilter} "
+            f"removed_short_tracks={cleanup_stats.removed_by_short_tracks} "
+            f"short_tracks_removed={cleanup_stats.short_track_count} "
+            f"elapsed_s={cleanup_elapsed_s:.2f}"
+        ),
+    )
+    processed_overlay_start = time.perf_counter()
     processed_mean_instances, processed_max_instances, processed_tracked_ids = _write_overlay_videos(
         processed_frames,
         detailed_path=processed_annotated_video_path,
         clean_path=processed_clean_annotated_video_path,
         fps=fps,
         prompts=prompts,
+        log_progress=log_progress,
+        log_every_frames=log_every_frames,
+        stage_label=f"{video_path} processed_overlays",
+    )
+    processed_overlay_elapsed_s = time.perf_counter() - processed_overlay_start
+    _log_progress(
+        log_progress,
+        f"[sam3] processed overlays written: {video_path} elapsed_s={processed_overlay_elapsed_s:.2f}",
     )
 
     summary_payload: dict[str, Any] = {
@@ -643,6 +730,9 @@ def _run_semantic_tracking_for_video(
         "processed_max_instances_per_frame": processed_max_instances,
         "processed_tracked_object_ids": processed_tracked_ids,
         "short_track_ids_removed": sorted(short_track_ids),
+        "cleanup_stats": asdict(cleanup_stats),
+        "cleanup_elapsed_s": cleanup_elapsed_s,
+        "processed_overlay_elapsed_s": processed_overlay_elapsed_s,
         "dump_frame_metadata": dump_frame_metadata,
     }
     if dump_frame_metadata:
@@ -740,6 +830,12 @@ def _parse_args() -> argparse.Namespace:
         default=False,
         help="Enable coarse progress logs for console and swarm logs.",
     )
+    parser.add_argument(
+        "--log-every-frames",
+        type=int,
+        default=25,
+        help="When --log-progress is enabled, log every N processed frames.",
+    )
     return parser.parse_args()
 
 
@@ -771,6 +867,7 @@ def main() -> int:
             half=bool(args.half),
             dump_frame_metadata=bool(args.dump_frame_metadata),
             log_progress=bool(args.log_progress),
+            log_every_frames=int(args.log_every_frames),
         )
         for video_path in benchmark_videos
     ]

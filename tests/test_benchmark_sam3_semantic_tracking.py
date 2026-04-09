@@ -167,6 +167,7 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
         half=True,
         dump_frame_metadata=True,
         log_progress=False,
+        log_every_frames=25,
     )
 
     assert recorded["overrides"]["conf"] == 0.25
