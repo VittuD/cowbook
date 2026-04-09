@@ -7,10 +7,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-COPY . /app
+COPY pyproject.toml readme.md config.json /app/
+COPY src /app/src
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install -e .
+
+COPY assets /app/assets
+COPY configs /app/configs
+COPY models /app/models
+COPY sample_data /app/sample_data
 
 ENTRYPOINT ["python", "-m", "cowbook"]
 CMD ["--config", "config.json"]

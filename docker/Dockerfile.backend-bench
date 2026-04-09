@@ -10,14 +10,21 @@ ARG APP_GID=1030
 
 WORKDIR /app
 
-COPY . /app
+COPY pyproject.toml readme.md /app/
+COPY src /app/src
 
 RUN python -m pip install --upgrade pip && \
-    python -m pip install --extra-index-url https://pypi.nvidia.com -e . onnx onnxruntime-gpu tensorrt-cu12 && \
+    python -m pip install --extra-index-url https://pypi.nvidia.com onnx onnxruntime-gpu tensorrt-cu12 && \
+    python -m pip install -e . && \
     groupadd --gid "${APP_GID}" cowbook && \
     useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash cowbook && \
     mkdir -p /app/var /home/cowbook/.cache /home/cowbook/.config/Ultralytics && \
-    chown -R cowbook:cowbook /app /home/cowbook
+    chown -R cowbook:cowbook /app/var /home/cowbook
+
+COPY --chown=cowbook:cowbook assets /app/assets
+COPY --chown=cowbook:cowbook models /app/models
+COPY --chown=cowbook:cowbook sample_data /app/sample_data
+COPY --chown=cowbook:cowbook tools /app/tools
 
 ENV HOME=/home/cowbook \
     XDG_CACHE_HOME=/home/cowbook/.cache \
