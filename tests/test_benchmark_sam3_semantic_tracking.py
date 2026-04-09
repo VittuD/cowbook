@@ -87,12 +87,28 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
 
     class FakeBoxes:
         def __init__(self, object_ids):
+            self.xyxy = FakeArray(
+                [
+                    [0.0, 0.0, 10.0, 10.0],
+                    [4.0, 4.0, 16.0, 16.0],
+                ][: len(object_ids)]
+            )
             self.id = FakeTensor(object_ids)
             self.conf = FakeTensor([0.85 for _ in object_ids])
             self.cls = FakeTensor([0 for _ in object_ids])
 
         def __len__(self):
             return len(self.id.tolist())
+
+    class FakeArray:
+        def __init__(self, values):
+            self._values = np.asarray(values, dtype=np.float32)
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self._values
 
     class FakeTensor:
         def __init__(self, values):
@@ -101,10 +117,23 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
         def tolist(self):
             return list(self._values)
 
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.asarray(self._values, dtype=np.float32)
+
+    class FakeMasks:
+        def __init__(self, count: int):
+            self.data = FakeArray(np.ones((count, 24, 32), dtype=np.uint8))
+
     class FakeResult:
         def __init__(self, object_ids):
             self.boxes = FakeBoxes(object_ids)
             self.names = {0: "cow"}
+            self.orig_img = np.zeros((24, 32, 3), dtype=np.uint8)
+            self.path = str(video_path)
+            self.masks = FakeMasks(len(object_ids))
 
         def plot(self, **_kwargs):
             return np.zeros((24, 32, 3), dtype=np.uint8)
@@ -152,4 +181,9 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
     assert result.max_instances_per_frame == 2
     assert Path(result.annotated_video_path).exists()
     assert Path(result.clean_annotated_video_path).exists()
+    assert Path(result.processed_annotated_video_path).exists()
+    assert Path(result.processed_clean_annotated_video_path).exists()
+    assert result.processed_mean_instances_per_frame == 0.0
+    assert result.processed_max_instances_per_frame == 0
+    assert result.processed_tracked_object_ids == []
     assert Path(result.summary_json_path).exists()
