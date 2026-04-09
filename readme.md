@@ -185,6 +185,7 @@ Docker images included:
 - `docker/Dockerfile.a40-bench`: direct tracking benchmark/runtime image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 - `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
+- `docker/Dockerfile.sam3-bench`: SAM3 all-instance semantic video tracking benchmark image
 - `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
 
 The image:
@@ -248,6 +249,8 @@ The cleanup benchmark image runs the optional `tracking_cleanup` path on prepare
 The backend benchmark image runs `tools.benchmark_tracking_backends` against the four sample videos, supports both sequential shared-model runs and `process_parallel_models` runs such as `--process-workers 2`, exports `onnx` and `engine` candidates from the baseline `.pt` model when the environment supports that, and writes a JSON summary under `var/benchmarks/`. Use this image for backend export comparison, not as the primary source of truth for runtime concurrency decisions. The same tool can also benchmark prebuilt artifacts through `--onnx-artifact-path` and `--engine-artifact-path`.
 
 The TensorRT concurrency image runs `tools.benchmark_runtime_tracking_concurrency`, exports or reuses one TensorRT engine, then benchmarks Cowbook's real `group_processor` tracking path across the requested tracking concurrencies. Concurrency `1` uses the runtime inline path; higher values use the runtime multiprocessing path. This is the benchmark to use when deciding how runtime concurrency should behave on a target machine. Its defaults follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
+
+The SAM3 benchmark image runs `tools.benchmark_sam3_semantic_tracking` for text-only all-instance concept tracking, writes per-video JSON summaries, and produces annotated overlay videos for visual inspection. Its defaults target `/scratch/vet/var/benchmarks/sam3_semantic_tracking_300s`. Per the Ultralytics SAM3 docs, the `sam3.pt` weights are not auto-downloaded and must be provided explicitly in the image or working directory.
 
 Build the TensorRT concurrency image:
 
