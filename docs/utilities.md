@@ -1,6 +1,8 @@
 # Utilities
 
-The `scripts/` directory contains small repository utilities. They are optional helpers, not part of the `cowbook` package runtime surface.
+The top-level `scripts/` and `tools/` directories contain repository utilities. They are optional helpers, not part of the `cowbook` package runtime surface.
+
+`tools/` contains benchmark harnesses and operational experiments. `scripts/` contains smaller one-off helpers such as video regrouping.
 
 ## `group_videos.sh`
 

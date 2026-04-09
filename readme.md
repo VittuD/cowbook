@@ -65,6 +65,7 @@ Deep internal modules are documented only when they become stable extension poin
 ├── sample_data/
 │   └── videos/
 ├── scripts/
+├── tools/
 ├── src/cowbook/
 │   ├── app/
 │   ├── core/
@@ -76,9 +77,9 @@ Deep internal modules are documented only when they become stable extension poin
 └── var/
 ```
 
-Directory intent is simple: `assets/` stores persistent non-code project assets such as calibration, masks, tracker config, and the barn background; `configs/` stores example run configs; `sample_data/` stores local inputs for smoke and full runs; `src/cowbook/` contains the packaged code; and `var/` is reserved for runtime outputs and cache data.
+Directory intent is simple: `assets/` stores persistent non-code project assets such as calibration, masks, tracker config, and the barn background; `configs/` stores example run configs; `sample_data/` stores local inputs for smoke and full runs; top-level `tools/` stores benchmark harnesses and other non-package operational utilities; `src/cowbook/` contains the packaged code; and `var/` is reserved for runtime outputs and cache data.
 
-The [`scripts/`](scripts) directory contains optional repository utilities. [`group_videos.sh`](scripts/group_videos.sh) is a helper for reorganizing flat raw camera drops into grouped `videos/<group>/ChX.mp4` directories before config creation.
+The [`scripts/`](scripts) directory contains optional repository utilities. [`group_videos.sh`](scripts/group_videos.sh) is a helper for reorganizing flat raw camera drops into grouped `videos/<group>/ChX.mp4` directories before config creation. Benchmark harnesses live in top-level [`tools/`](tools), not under `src/cowbook/`.
 
 ## Install
 
@@ -181,6 +182,7 @@ Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `Ru
 Docker images included:
 
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
+- `docker/Dockerfile.a40-bench`: direct tracking benchmark/runtime image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 - `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
 - `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
@@ -429,7 +431,7 @@ Included examples:
 - Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
 - `tracking_concurrency > 1` can increase GPU memory pressure significantly, but it is now a supported throughput path rather than a legacy fallback.
-- Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json).
+- Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py). The canonical runtime calibration asset is [assets/calibration/camera_system.json](assets/calibration/camera_system.json), and [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json) remains an auxiliary correspondence source.
 - YOLO API behavior can drift across `ultralytics` releases.
 
 ## Development

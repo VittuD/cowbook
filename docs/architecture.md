@@ -40,12 +40,14 @@ The package map is meant to be read top-down: [`cowbook.runtime`](reference/runt
 The internal package layout follows responsibilities rather than scripts:
 
 - [`cowbook.runtime`](reference/runtime.md#cowbook.runtime): public package surface and stable imports
-- [`cowbook.app`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner): synchronous orchestration centered on [`PipelineRunner`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner)
+- [`cowbook.app`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner): synchronous orchestration centered on [`PipelineRunner`](reference/runtime.md#cowbook.app.pipeline.PipelineRunner), plus CLI glue and thin service adapters
 - [`cowbook.execution`](reference/execution.md): structured run state, observers, shared progress reporting, and [execution reference](reference/execution.md)
 - [`cowbook.core`](reference/runtime.md#cowbook.core.contracts.PipelineConfig): typed contracts, including [`PipelineConfig`](reference/runtime.md#cowbook.core.contracts.PipelineConfig), plus shared transforms
 - `cowbook.io`: [config loading](configuration.md), file-based inputs, and [runtime artifacts](runtime-artifacts.md)
 - `cowbook.vision`: tracking, [projection](calibration.md), and rendering
 - `cowbook.workflows`: [group-level pipeline flow](pipeline.md)
+
+Top-level `tools/` and `scripts/` remain outside the package boundary. They are repository utilities, not part of the supported runtime surface.
 
 ## Design Rule
 
