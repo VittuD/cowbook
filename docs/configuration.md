@@ -41,5 +41,7 @@ Optional `tracking_cleanup` adds an alternate tracking path that:
 
 - preprocesses detections before tracking
 - preserves detection lineage with `det_idx`
-- can prune short-lived tracks with a second tracking pass
+- can prune short-lived tracks using a gap-tolerant consecutive streak rule
 - can smooth final output boxes after tracking
+
+For short-track pruning, `min_track_length` now means the minimum surviving streak length rather than the total observation count. Small gaps are tolerated via `short_track_gap_tolerance`, which defaults to `6` frames. With the defaults, a track survives pruning when it reaches a streak of at least `min_track_length` observations while allowing up to `6` missing frames between consecutive observations in that streak.

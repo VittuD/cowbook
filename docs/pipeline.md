@@ -29,6 +29,8 @@ When `tracking_cleanup.enabled` is true, the tracking stage expands into:
 1. detection cache for the current run
 2. detection preprocessing
 3. cleanup tracking pass 1
-4. optional short-track pruning
+4. optional short-track pruning by gap-tolerant consecutive streak
 5. optional cleanup tracking pass 2
 6. optional output smoothing
+
+`min_track_length` is evaluated against the longest surviving streak for each track, not against total lifetime observations. `short_track_gap_tolerance` controls how many missing frames are tolerated inside that streak; the default is `6`.
