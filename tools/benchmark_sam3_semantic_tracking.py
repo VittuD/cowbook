@@ -122,11 +122,19 @@ def _extract_confidences(boxes) -> list[float]:
     return [float(value) for value in values]
 
 
+def _normalize_names(names: Any) -> dict[int, str]:
+    if isinstance(names, dict):
+        return {int(key): str(value) for key, value in names.items()}
+    if isinstance(names, (list, tuple)):
+        return {index: str(value) for index, value in enumerate(names)}
+    return {}
+
+
 def _frame_summary(frame_index: int, result) -> dict[str, Any]:
     boxes = getattr(result, "boxes", None)
     object_ids = _extract_object_ids(boxes)
     confidences = _extract_confidences(boxes)
-    names = getattr(result, "names", {}) or {}
+    names = _normalize_names(getattr(result, "names", {}) or {})
 
     class_ids: list[int] = []
     if boxes is not None and getattr(boxes, "cls", None) is not None:

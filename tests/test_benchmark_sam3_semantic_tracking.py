@@ -56,6 +56,30 @@ def test_frame_summary_reads_object_ids_and_class_names():
     assert summary["class_names"] == ["cow", "cow"]
 
 
+def test_frame_summary_accepts_list_names():
+    class FakeTensor:
+        def __init__(self, values):
+            self._values = values
+
+        def tolist(self):
+            return list(self._values)
+
+    class FakeBoxes:
+        id = FakeTensor([3])
+        conf = FakeTensor([0.7])
+        cls = FakeTensor([1])
+
+        def __len__(self):
+            return 1
+
+    class FakeResult:
+        boxes = FakeBoxes()
+        names = ["background", "cow"]
+
+    summary = module._frame_summary(0, FakeResult())
+    assert summary["class_names"] == ["cow"]
+
+
 def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, tmp_path: Path):
     video_path = tmp_path / "input.mp4"
     video_path.write_bytes(b"placeholder")
