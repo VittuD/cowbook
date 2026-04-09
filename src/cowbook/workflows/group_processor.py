@@ -21,6 +21,7 @@ from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import load_yolo_model, track_video_with_yolo
 
 logger = logging.getLogger(__name__)
+_WORKER_MODEL_CACHE: dict[tuple[str, str], object] = {}
 
 
 @dataclass(slots=True)
@@ -31,6 +32,55 @@ class _TrackingTask:
     save: bool
     tracking_cleanup: dict | None
     camera_nr: int
+
+
+def _tracking_mode_from_cleanup(tracking_cleanup: dict | None) -> str:
+    if tracking_cleanup and tracking_cleanup.get("enabled"):
+        return "cleanup"
+    return "track"
+
+
+def _cached_tracking_model(
+    model_cache: dict[tuple[str, str], object],
+    *,
+    model_ref: str,
+    tracking_cleanup: dict | None,
+):
+    cache_key = (model_ref, _tracking_mode_from_cleanup(tracking_cleanup))
+    model = model_cache.get(cache_key)
+    if model is None:
+        model = load_yolo_model(model_ref)
+        model_cache[cache_key] = model
+    return model
+
+
+def _tracking_kwargs(
+    *,
+    save: bool,
+    tracking_cleanup: dict | None,
+    camera_nr: int | None,
+    log_progress: bool,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    progress_event_sink=None,
+    model=None,
+) -> dict:
+    kwargs = {
+        "save": save,
+        "log_progress": log_progress,
+        "camera_nr": camera_nr,
+    }
+    if reporter is not None:
+        kwargs["reporter"] = reporter
+    if group_idx is not None:
+        kwargs["group_idx"] = group_idx
+    if progress_event_sink is not None:
+        kwargs["progress_event_sink"] = progress_event_sink
+    if tracking_cleanup and tracking_cleanup.get("enabled"):
+        kwargs["tracking_cleanup"] = tracking_cleanup
+    if model is not None:
+        kwargs["model"] = model
+    return kwargs
 
 
 def _tracking_worker(
@@ -68,13 +118,20 @@ def _tracking_worker(
                         "payload": payload,
                     }
                 )
-        kwargs = {"save": save}
-        if tracking_cleanup and tracking_cleanup.get("enabled"):
-            kwargs["tracking_cleanup"] = tracking_cleanup
-        kwargs["log_progress"] = log_progress
-        kwargs["camera_nr"] = camera_nr
-        if progress_event_sink is not None:
-            kwargs["progress_event_sink"] = progress_event_sink
+        model = _cached_tracking_model(
+            _WORKER_MODEL_CACHE,
+            model_ref=model_ref,
+            tracking_cleanup=tracking_cleanup,
+        )
+        kwargs = _tracking_kwargs(
+            save=save,
+            tracking_cleanup=tracking_cleanup,
+            camera_nr=camera_nr,
+            log_progress=log_progress,
+            group_idx=group_idx,
+            progress_event_sink=progress_event_sink,
+            model=model,
+        )
         track_video_with_yolo(video_path, output_json, model_ref, **kwargs)
         return output_json, None
     except Exception as e:
@@ -89,9 +146,7 @@ def _tracking_mode(task: _TrackingTask) -> str:
     Those modes must not share the same YOLO instance because Ultralytics stores
     tracking callbacks on the model object.
     """
-    if task.tracking_cleanup and task.tracking_cleanup.get("enabled"):
-        return "cleanup"
-    return "track"
+    return _tracking_mode_from_cleanup(task.tracking_cleanup)
 
 
 def _run_tracking_inline(
@@ -115,21 +170,20 @@ def _run_tracking_inline(
         for task in tasks:
             _raise_if_cancelled(cancellation_token)
             try:
-                cache_key = (task.model_ref, _tracking_mode(task))
-                model = model_cache.get(cache_key)
-                if model is None:
-                    model = load_yolo_model(task.model_ref)
-                    model_cache[cache_key] = model
-                kwargs = {
-                    "save": task.save,
-                    "log_progress": log_progress,
-                    "reporter": reporter,
-                    "group_idx": group_idx,
-                    "camera_nr": task.camera_nr,
-                    "model": model,
-                }
-                if task.tracking_cleanup and task.tracking_cleanup.get("enabled"):
-                    kwargs["tracking_cleanup"] = task.tracking_cleanup
+                model = _cached_tracking_model(
+                    model_cache,
+                    model_ref=task.model_ref,
+                    tracking_cleanup=task.tracking_cleanup,
+                )
+                kwargs = _tracking_kwargs(
+                    save=task.save,
+                    tracking_cleanup=task.tracking_cleanup,
+                    camera_nr=task.camera_nr,
+                    log_progress=log_progress,
+                    reporter=reporter,
+                    group_idx=group_idx,
+                    model=model,
+                )
                 track_video_with_yolo(
                     task.video_path,
                     task.output_json,

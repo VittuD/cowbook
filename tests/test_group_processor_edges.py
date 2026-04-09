@@ -10,12 +10,14 @@ from cowbook.workflows import group_processor as group_processor_module
 
 def test_tracking_worker_passes_cleanup_and_progress_sink(monkeypatch, tmp_path):
     recorded = {}
+    monkeypatch.setattr(group_processor_module, "_WORKER_MODEL_CACHE", {})
 
     def fake_track(video_path, output_json, model_ref, **kwargs):
         recorded["args"] = (video_path, output_json, model_ref)
         recorded["kwargs"] = kwargs
         kwargs["progress_event_sink"]("tracking_stage_progress", {"frame_current": 1})
 
+    monkeypatch.setattr(group_processor_module, "load_yolo_model", lambda _path: object())
     monkeypatch.setattr(group_processor_module, "track_video_with_yolo", fake_track)
 
     progress_queue = Queue()
@@ -35,7 +37,79 @@ def test_tracking_worker_passes_cleanup_and_progress_sink(monkeypatch, tmp_path)
     assert output_json is not None
     assert recorded["kwargs"]["tracking_cleanup"] == {"enabled": True}
     assert recorded["kwargs"]["camera_nr"] == 4
+    assert recorded["kwargs"]["model"] is not None
     assert progress_queue.get_nowait()["event_type"] == "tracking_stage_progress"
+
+
+def test_tracking_worker_reuses_process_local_model_cache_for_same_mode(monkeypatch, tmp_path):
+    load_calls = []
+    seen_models = []
+    monkeypatch.setattr(group_processor_module, "_WORKER_MODEL_CACHE", {})
+
+    def fake_load_yolo_model(model_path):
+        model = object()
+        load_calls.append((model_path, model))
+        return model
+
+    def fake_track(_video_path, _output_json, _model_ref, **kwargs):
+        seen_models.append(kwargs["model"])
+
+    monkeypatch.setattr(group_processor_module, "load_yolo_model", fake_load_yolo_model)
+    monkeypatch.setattr(group_processor_module, "track_video_with_yolo", fake_track)
+
+    first_result = group_processor_module._tracking_worker(
+        "cam1.mp4",
+        str(tmp_path / "cam1.json"),
+        "model.pt",
+        save=False,
+    )
+    second_result = group_processor_module._tracking_worker(
+        "cam4.mp4",
+        str(tmp_path / "cam4.json"),
+        "model.pt",
+        save=False,
+    )
+
+    assert first_result[1] is None
+    assert second_result[1] is None
+    assert [call[0] for call in load_calls] == ["model.pt"]
+    assert len({id(model) for model in seen_models}) == 1
+
+
+def test_tracking_worker_keeps_direct_and_cleanup_process_local_model_caches_separate(monkeypatch, tmp_path):
+    load_calls = []
+    seen_models = []
+    monkeypatch.setattr(group_processor_module, "_WORKER_MODEL_CACHE", {})
+
+    def fake_load_yolo_model(model_path):
+        model = object()
+        load_calls.append((model_path, model))
+        return model
+
+    def fake_track(video_path, _output_json, _model_ref, **kwargs):
+        seen_models.append((video_path, kwargs["model"]))
+
+    monkeypatch.setattr(group_processor_module, "load_yolo_model", fake_load_yolo_model)
+    monkeypatch.setattr(group_processor_module, "track_video_with_yolo", fake_track)
+
+    direct_result = group_processor_module._tracking_worker(
+        "direct.mp4",
+        str(tmp_path / "direct.json"),
+        "model.pt",
+        save=False,
+    )
+    cleanup_result = group_processor_module._tracking_worker(
+        "cleanup.mp4",
+        str(tmp_path / "cleanup.json"),
+        "model.pt",
+        save=False,
+        tracking_cleanup={"enabled": True},
+    )
+
+    assert direct_result[1] is None
+    assert cleanup_result[1] is None
+    assert [call[0] for call in load_calls] == ["model.pt", "model.pt"]
+    assert len({id(model) for _video_path, model in seen_models}) == 2
 
 
 def test_drain_tracking_progress_queue_emits_events():

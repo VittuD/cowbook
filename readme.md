@@ -172,7 +172,7 @@ Request-based runtime entrypoints return a normalized `RunResult`, which wraps t
 
 Config loading is strict: file-based loading raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and both file-based and in-memory config normalization raise `ValueError` for invalid runtime values. In-memory config loading does not mutate the caller-provided object.
 
-For GPU-oriented runs, `tracking_concurrency=1` is the intended baseline on smaller cards. Cowbook keeps the same execution events and output contract in that mode, but bypasses multiprocessing and reuses one YOLO model instance per `(model_path, tracking mode)` inside a group to avoid unnecessary startup cost.
+For GPU-oriented runs, `tracking_concurrency=1` is the intended baseline on smaller cards. Cowbook keeps the same execution events and output contract in that mode, but bypasses multiprocessing and reuses one YOLO model instance per `(model_path, tracking mode)` inside a group to avoid unnecessary startup cost. When effective tracking concurrency is greater than `1`, Cowbook still uses worker processes, but each worker now reuses its own model instance for repeated tasks within the same group instead of reloading it for every video.
 
 Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
@@ -183,7 +183,7 @@ Docker images included:
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 - `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
-- `docker/Dockerfile.tensorrt-bench`: TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
+- `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
 
 The image:
 
@@ -245,7 +245,7 @@ The cleanup benchmark image runs the optional `tracking_cleanup` path on prepare
 
 The backend benchmark image runs `tools.benchmark_tracking_backends` against the four sample videos, supports both sequential shared-model runs and `process_parallel_models` runs such as `--process-workers 2`, exports `onnx` and `engine` candidates from the baseline `.pt` model when the environment supports that, and writes a JSON summary under `var/benchmarks/`. The same tool can also benchmark prebuilt artifacts through `--onnx-artifact-path` and `--engine-artifact-path`.
 
-The TensorRT concurrency image runs `tools.benchmark_tensorrt_concurrency`, exports or reuses one TensorRT engine, then benchmarks both `.pt` and `.engine` across the requested tracking concurrencies. Concurrency `1` uses the single-model sequential path; higher values use `process_parallel_models` with the matching worker count. Its defaults now follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
+The TensorRT concurrency image runs `tools.benchmark_runtime_tracking_concurrency`, exports or reuses one TensorRT engine, then benchmarks Cowbook's real `group_processor` tracking path across the requested tracking concurrencies. Concurrency `1` uses the runtime inline path; higher values use the runtime multiprocessing path. Its defaults follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
 
 Build the TensorRT concurrency image:
 
@@ -309,6 +309,7 @@ Notes:
 - `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
 - when effective tracking concurrency is `1`, tracking runs inline instead of through a worker process
 - the inline single-worker path may reuse one YOLO model instance per `(model_path, tracking mode)` within a group
+- when effective tracking concurrency is greater than `1`, each worker process may reuse its own model instance for repeated tasks within the same group
 - direct tracking and cleanup tracking do not share a reused model instance, so tracker state does not bleed across modes
 - `log_progress` enables human-readable milestone logs for long tracking stages
 - masks default to `assets/masks/*.png`
