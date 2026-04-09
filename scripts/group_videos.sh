@@ -32,59 +32,101 @@ Examples:
 EOF
 }
 
-SRC_DIR="VideoVanzetti04042024"
-DEST_BASE="videos"
-MODE="move"
-DRY_RUN=0
-OVERWRITE=0
+die() {
+  echo "$1" >&2
+  exit "${2:-1}"
+}
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --src)
-      SRC_DIR="$2"
-      shift 2
-      ;;
-    --dest)
-      DEST_BASE="$2"
-      shift 2
-      ;;
-    --copy)
-      MODE="copy"
-      shift
-      ;;
-    --dry-run)
-      DRY_RUN=1
-      shift
-      ;;
-    --overwrite)
-      OVERWRITE=1
-      shift
-      ;;
-    --help|-h)
-      usage
-      exit 0
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      usage >&2
-      exit 2
-      ;;
-  esac
-done
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --src)
+        SRC_DIR="$2"
+        shift 2
+        ;;
+      --dest)
+        DEST_BASE="$2"
+        shift 2
+        ;;
+      --copy)
+        MODE="copy"
+        shift
+        ;;
+      --dry-run)
+        DRY_RUN=1
+        shift
+        ;;
+      --overwrite)
+        OVERWRITE=1
+        shift
+        ;;
+      --help|-h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument: $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+}
 
-if [[ ! -d "$SRC_DIR" ]]; then
-  echo "Source directory does not exist: $SRC_DIR" >&2
-  exit 1
-fi
+print_transfer_command() {
+  local src="$1"
+  local dest="$2"
+  local -a cmd
 
-matched=0
-for f in "$SRC_DIR"/Ch*.mp4; do
-  matched=1
-  filename="$(basename "$f")"
+  if [[ "$MODE" == "copy" ]]; then
+    cmd=(cp)
+  else
+    cmd=(mv)
+  fi
+  if [[ "$OVERWRITE" -ne 1 ]]; then
+    cmd+=(-n)
+  fi
+
+  printf '%s' "${cmd[0]}"
+  for arg in "${cmd[@]:1}"; do
+    printf ' "%s"' "$arg"
+  done
+  printf ' "%s" "%s"\n' "$src" "$dest"
+}
+
+transfer_file() {
+  local src="$1"
+  local dest_dir="$2"
+  local dest_file="$3"
+  local -a cmd
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "mkdir -p \"$dest_dir\""
+    print_transfer_command "$src" "$dest_file"
+    return
+  fi
+
+  mkdir -p "$dest_dir"
+  if [[ "$MODE" == "copy" ]]; then
+    cmd=(cp)
+  else
+    cmd=(mv)
+  fi
+  if [[ "$OVERWRITE" -ne 1 ]]; then
+    cmd+=(-n)
+  fi
+  "${cmd[@]}" "$src" "$dest_file"
+}
+
+process_video_file() {
+  local file_path="$1"
+  local filename ch rest group_name dest_dir dest_file
+
+  filename="$(basename "$file_path")"
 
   if [[ "$filename" != *_* ]]; then
     echo "Skipping unexpected filename (missing group separator): $filename" >&2
-    continue
+    return
   fi
 
   ch="${filename%%_*}"
@@ -93,49 +135,34 @@ for f in "$SRC_DIR"/Ch*.mp4; do
 
   if [[ -z "$ch" || -z "$group_name" || "$group_name" == "$filename" ]]; then
     echo "Skipping unexpected filename: $filename" >&2
-    continue
+    return
   fi
 
   dest_dir="$DEST_BASE/$group_name"
   dest_file="$dest_dir/$ch.mp4"
+  transfer_file "$file_path" "$dest_dir" "$dest_file"
+}
 
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "mkdir -p \"$dest_dir\""
-    if [[ "$MODE" == "copy" ]]; then
-      if [[ "$OVERWRITE" -eq 1 ]]; then
-        echo "cp \"$f\" \"$dest_file\""
-      else
-        echo "cp -n \"$f\" \"$dest_file\""
-      fi
-    else
-      if [[ "$OVERWRITE" -eq 1 ]]; then
-        echo "mv \"$f\" \"$dest_file\""
-      else
-        echo "mv -n \"$f\" \"$dest_file\""
-      fi
-    fi
-    continue
-  fi
+SRC_DIR="VideoVanzetti04042024"
+DEST_BASE="videos"
+MODE="move"
+DRY_RUN=0
+OVERWRITE=0
 
-  mkdir -p "$dest_dir"
-  if [[ "$MODE" == "copy" ]]; then
-    if [[ "$OVERWRITE" -eq 1 ]]; then
-      cp "$f" "$dest_file"
-    else
-      cp -n "$f" "$dest_file"
-    fi
-  else
-    if [[ "$OVERWRITE" -eq 1 ]]; then
-      mv "$f" "$dest_file"
-    else
-      mv -n "$f" "$dest_file"
-    fi
-  fi
+parse_args "$@"
+
+if [[ ! -d "$SRC_DIR" ]]; then
+  die "Source directory does not exist: $SRC_DIR" 1
+fi
+
+matched=0
+for f in "$SRC_DIR"/Ch*.mp4; do
+  matched=1
+  process_video_file "$f"
 done
 
 if [[ "$matched" -eq 0 ]]; then
-  echo "No matching files found in $SRC_DIR" >&2
-  exit 1
+  die "No matching files found in $SRC_DIR" 1
 fi
 
 echo "Done."

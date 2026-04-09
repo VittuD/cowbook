@@ -5,14 +5,13 @@ import json
 import pytest
 
 from cowbook.io.config_loader import (
-    load_config,
     load_config_file,
     normalize_config_mapping,
     write_config_file,
 )
 
 
-def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
+def test_load_config_file_applies_defaults_and_normalizes_values(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -24,7 +23,7 @@ def test_load_config_applies_defaults_and_normalizes_values(tmp_path):
         )
     )
 
-    config = load_config(str(config_path))
+    config = load_config_file(str(config_path))
 
     assert config["fps"] == 12
     assert config["output_image_format"] == "jpg"
@@ -61,13 +60,13 @@ def test_normalize_config_mapping_applies_defaults_and_overrides():
     assert config["video_groups"][0][0]["camera_nr"] == 1
 
 
-def test_load_config_applies_explicit_overrides(tmp_path):
+def test_load_config_file_applies_explicit_overrides(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]], "fps": 6})
     )
 
-    config = load_config(
+    config = load_config_file(
         str(config_path),
         overrides={
             "fps": 15,
@@ -83,19 +82,19 @@ def test_load_config_applies_explicit_overrides(tmp_path):
     assert config["log_progress"] is True
 
 
-def test_load_config_file_matches_backward_compatible_loader(tmp_path):
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
-        json.dumps({"video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]], "fps": 6})
-    )
+def test_load_config_file_preserves_loader_specific_errors(tmp_path):
+    missing_path = tmp_path / "missing.json"
+    invalid_json_path = tmp_path / "invalid.json"
+    invalid_json_path.write_text("{bad json")
 
-    legacy = load_config(str(config_path), overrides={"run_name": "legacy"})
-    explicit = load_config_file(str(config_path), overrides={"run_name": "legacy"})
+    with pytest.raises(FileNotFoundError):
+        load_config_file(str(missing_path))
 
-    assert explicit == legacy
+    with pytest.raises(json.JSONDecodeError):
+        load_config_file(str(invalid_json_path))
 
 
-def test_load_config_derives_run_scoped_output_paths(tmp_path):
+def test_load_config_file_derives_run_scoped_output_paths(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -107,7 +106,7 @@ def test_load_config_derives_run_scoped_output_paths(tmp_path):
         )
     )
 
-    config = load_config(str(config_path))
+    config = load_config_file(str(config_path))
 
     assert config["output_root"] == "runtime/runs/experiment-01"
     assert config["output_image_folder"] == "runtime/runs/experiment-01/frames"
@@ -136,7 +135,7 @@ def test_write_config_file_materializes_normalized_config(tmp_path):
     assert saved["video_groups"][0][0]["camera_nr"] == 1
 
 
-def test_load_config_rejects_duplicate_camera_numbers(tmp_path):
+def test_load_config_file_rejects_duplicate_camera_numbers(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -149,10 +148,11 @@ def test_load_config_rejects_duplicate_camera_numbers(tmp_path):
         )
     )
 
-    assert load_config(str(config_path)) == {}
+    with pytest.raises(ValueError, match="associated with a unique camera"):
+        load_config_file(str(config_path))
 
 
-def test_load_config_rejects_invalid_image_format(tmp_path):
+def test_load_config_file_rejects_invalid_image_format(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -163,24 +163,11 @@ def test_load_config_rejects_invalid_image_format(tmp_path):
         )
     )
 
-    assert load_config(str(config_path)) == {}
+    with pytest.raises(ValueError, match="Invalid output_image_format"):
+        load_config_file(str(config_path))
 
 
-def test_load_config_rejects_legacy_num_tracking_workers_field(tmp_path):
-    config_path = tmp_path / "config.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]],
-                "num_tracking_workers": 2,
-            }
-        )
-    )
-
-    assert load_config(str(config_path)) == {}
-
-
-def test_load_config_rejects_non_positive_tracking_concurrency(tmp_path):
+def test_load_config_file_rejects_non_positive_tracking_concurrency(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -191,10 +178,11 @@ def test_load_config_rejects_non_positive_tracking_concurrency(tmp_path):
         )
     )
 
-    assert load_config(str(config_path)) == {}
+    with pytest.raises(ValueError, match="'tracking_concurrency' must be >= 1"):
+        load_config_file(str(config_path))
 
 
-def test_load_config_normalizes_tracking_cleanup_block(tmp_path):
+def test_load_config_file_normalizes_tracking_cleanup_block(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -209,14 +197,14 @@ def test_load_config_normalizes_tracking_cleanup_block(tmp_path):
         )
     )
 
-    config = load_config(str(config_path))
+    config = load_config_file(str(config_path))
 
     assert config["tracking_cleanup"]["enabled"] is True
     assert config["tracking_cleanup"]["roi"] == [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
     assert config["tracking_cleanup"]["min_track_length"] == 5
 
 
-def test_load_config_rejects_invalid_tracking_cleanup_nms_mode(tmp_path):
+def test_load_config_file_rejects_invalid_tracking_cleanup_nms_mode(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -227,10 +215,11 @@ def test_load_config_rejects_invalid_tracking_cleanup_nms_mode(tmp_path):
         )
     )
 
-    assert load_config(str(config_path)) == {}
+    with pytest.raises(ValueError, match="tracking_cleanup.nms_mode"):
+        load_config_file(str(config_path))
 
 
-def test_load_config_rejects_tracking_cleanup_bad_roi(tmp_path):
+def test_load_config_file_rejects_tracking_cleanup_bad_roi(tmp_path):
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps(
@@ -241,7 +230,8 @@ def test_load_config_rejects_tracking_cleanup_bad_roi(tmp_path):
         )
     )
 
-    assert load_config(str(config_path)) == {}
+    with pytest.raises(ValueError, match="tracking_cleanup.roi must be a polygon"):
+        load_config_file(str(config_path))
 
 
 @pytest.mark.parametrize(
@@ -298,3 +288,30 @@ def test_normalize_config_mapping_rejects_invalid_shape_errors():
 
     with pytest.raises(ValueError, match="non-integer camera_nr"):
         normalize_config_mapping({"video_groups": [[{"path": "a.mp4", "camera_nr": "bad"}]]})
+
+
+def test_normalize_config_mapping_does_not_mutate_nested_input():
+    config = {
+        "video_groups": [[{"path": "videos/example.mp4", "camera_nr": "1"}]],
+        "tracking_cleanup": {"roi": [[0, "1"], ["2", 3], [4, 5]]},
+    }
+
+    normalized = normalize_config_mapping(config)
+
+    assert normalized["video_groups"][0][0]["camera_nr"] == 1
+    assert normalized["tracking_cleanup"]["roi"] == [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]
+    assert config["video_groups"][0][0]["camera_nr"] == "1"
+    assert config["tracking_cleanup"]["roi"] == [[0, "1"], ["2", 3], [4, 5]]
+
+
+def test_write_config_file_uses_same_validation_contract(tmp_path):
+    output_path = tmp_path / "materialized.json"
+
+    with pytest.raises(ValueError, match="Invalid output_image_format"):
+        write_config_file(
+            {
+                "video_groups": [[{"path": "videos/example.mp4", "camera_nr": 1}]],
+                "output_image_format": "bmp",
+            },
+            str(output_path),
+        )

@@ -72,7 +72,7 @@ def test_group_processor_emits_structured_events_for_precomputed_json_group(
 
     monkeypatch.setattr("cowbook.workflows.group_processor.process_and_save_frames", fake_process_and_save_frames)
     monkeypatch.setattr("cowbook.workflows.group_processor.merge_json_files", fake_merge_json_files)
-    monkeypatch.setattr("cowbook.workflows.group_processor._json_to_csv", fake_json_to_csv)
+    monkeypatch.setattr("cowbook.workflows.group_processor.json_to_csv", fake_json_to_csv)
 
     store = InMemoryJobStore()
     reporter = JobReporter(job_id="job-group", config_path="config.json", observer=store)

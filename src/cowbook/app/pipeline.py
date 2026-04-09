@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass, field
@@ -95,21 +96,13 @@ class PipelineRunner:
             cancellation_token=cancellation_token,
         )
 
-    def run_request(
+    def _create_reporter(
         self,
         request: RunRequest,
         *,
-        observer: JobObserver | None = None,
-        job_id: str | None = None,
-        cancellation_token: CancellationToken | None = None,
-    ) -> RunResult | None:
-        """Execute one pipeline run from a typed request."""
-
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        )
-
+        observer: JobObserver | None,
+        job_id: str | None,
+    ) -> tuple[InMemoryJobStore, JobReporter]:
         run_store = InMemoryJobStore()
         observers = [run_store]
         if observer is not None:
@@ -119,44 +112,53 @@ class PipelineRunner:
             config_path=request.config_reference,
             observer=CompositeObserver(observers),
         )
-        reporter.emit(
-            "job_started",
-            status="running",
-            stage="config",
-            payload={"overrides": dict(request.overrides)},
-        )
-        if self._cancel_if_requested(reporter, cancellation_token, stage="config"):
-            return self._build_result(run_store.get(reporter.job_id))
+        return run_store, reporter
 
-        resolved_config: PipelineConfig | None = None
-        config: dict[str, object]
-        if request.config_path is not None:
-            config = self.config_service.load(request.config_path, overrides=request.overrides)
-        else:
-            assert request.config is not None
-            config = self.config_service.normalize(request.config, overrides=request.overrides)
+    def _emit_config_failure(
+        self,
+        reporter: JobReporter,
+        request: RunRequest,
+        exc: FileNotFoundError | json.JSONDecodeError | TypeError | ValueError,
+    ) -> None:
+        logger.error("Failed to load config from %s: %s", request.config_reference, exc)
+        reporter.emit(
+            "job_failed",
+            status="failed",
+            stage="config",
+            message=f"Failed to load config from {request.config_reference}",
+            payload={"error_code": CONFIG_LOAD_FAILED, "error_detail": str(exc)},
+        )
+
+    def _resolve_config(
+        self,
+        request: RunRequest,
+        *,
+        reporter: JobReporter,
+    ) -> tuple[dict[str, object] | None, PipelineConfig | None]:
+        try:
+            if request.config_path is not None:
+                config = self.config_service.load(request.config_path, overrides=request.overrides)
+            else:
+                assert request.config is not None
+                config = self.config_service.normalize(request.config, overrides=request.overrides)
+        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            self._emit_config_failure(reporter, request, exc)
+            return None, None
         if not config:
-            logger.error("Failed to load config from %s", request.config_reference)
-            reporter.emit(
-                "job_failed",
-                status="failed",
-                stage="config",
-                message=f"Failed to load config from {request.config_reference}",
-                payload={"error_code": CONFIG_LOAD_FAILED},
+            self._emit_config_failure(
+                reporter,
+                request,
+                ValueError(f"Failed to load config from {request.config_reference}"),
             )
-            return self._build_result(run_store.get(reporter.job_id))
-        resolved_config = PipelineConfig.from_mapping(config)
+            return None, None
+        return config, PipelineConfig.from_mapping(config)
 
-        reporter.emit(
-            "config_loaded",
-            stage="config",
-            payload={
-                "run_name": config.get("run_name"),
-                "runtime_root": config.get("runtime_root"),
-                "output_root": config.get("output_root"),
-            },
-        )
-
+    def _prepare_output_dirs(
+        self,
+        config: dict[str, object],
+        *,
+        reporter: JobReporter,
+    ) -> tuple[str, str, str]:
         (
             output_image_folder,
             output_video_folder,
@@ -174,45 +176,61 @@ class PipelineRunner:
             stage="setup",
             payload={"path": output_image_folder},
         )
-        if self._cancel_if_requested(reporter, cancellation_token, stage="setup"):
-            return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
+        return output_image_folder, output_video_folder, output_json_folder
 
-        groups = config.get("video_groups", [])
-        reporter.emit("groups_discovered", stage="groups", payload={"count": len(groups)})
-        if config.get("mask_videos", False):
-            logger.info("mask_videos=true -> generating masked copies before inference...")
+    def _maybe_mask_groups(
+        self,
+        groups: list[object],
+        config: dict[str, object],
+        *,
+        reporter: JobReporter,
+    ) -> list[object]:
+        if not config.get("mask_videos", False):
+            return groups
+
+        logger.info("mask_videos=true -> generating masked copies before inference...")
+        reporter.emit(
+            "masking_started",
+            stage="masking",
+            payload={"group_count": len(groups)},
+        )
+        try:
+            groups = self.masking_service.preprocess(
+                config,
+                reporter=reporter,
+                log_progress=bool(config.get("log_progress", False)),
+            )
+            logger.info("Masked video groups prepared.")
             reporter.emit(
-                "masking_started",
+                "masking_completed",
                 stage="masking",
                 payload={"group_count": len(groups)},
             )
-            try:
-                groups = self.masking_service.preprocess(
-                    config,
-                    reporter=reporter,
-                    log_progress=bool(config.get("log_progress", False)),
-                )
-                logger.info("Masked video groups prepared.")
-                reporter.emit(
-                    "masking_completed",
-                    stage="masking",
-                    payload={"group_count": len(groups)},
-                )
-            except Exception as exc:
-                logger.exception("Video masking failed. Falling back to original videos: %s", exc)
-                reporter.emit(
-                    "masking_failed",
-                    stage="masking",
-                    message="Video masking failed. Falling back to original videos.",
-                    payload={
-                        "error_code": MASKING_FAILED,
-                        "error_detail": str(exc),
-                        "fallback": "original_videos",
-                    },
-                )
-        if self._cancel_if_requested(reporter, cancellation_token, stage="groups"):
-            return run_store.get(reporter.job_id)
+            return groups
+        except Exception as exc:
+            logger.exception("Video masking failed. Falling back to original videos: %s", exc)
+            reporter.emit(
+                "masking_failed",
+                stage="masking",
+                message="Video masking failed. Falling back to original videos.",
+                payload={
+                    "error_code": MASKING_FAILED,
+                    "error_detail": str(exc),
+                    "fallback": "original_videos",
+                },
+            )
+            return groups
 
+    def _process_groups(
+        self,
+        groups: list[object],
+        config: dict[str, object],
+        *,
+        output_json_folder: str,
+        output_image_folder: str,
+        reporter: JobReporter,
+        cancellation_token: CancellationToken | None,
+    ) -> bool:
         if not groups:
             logger.warning("No video groups specified in config.")
             reporter.emit(
@@ -220,99 +238,178 @@ class PipelineRunner:
                 stage="groups",
                 message="No video groups specified in config.",
             )
-        else:
-            for idx, video_group in enumerate(groups, start=1):
-                if self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx):
-                    return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
-                logger.info("=== Group %d/%d ===", idx, len(groups))
-                try:
-                    self.group_processing_service.process_group(
-                        idx,
-                        video_group,
-                        config["model_path"],
-                        config,
-                        output_json_folder,
-                        output_image_folder,
-                        reporter=reporter,
-                        cancellation_token=cancellation_token,
-                    )
-                except JobCancelledError:
-                    reporter.emit(
-                        "group_cancelled",
-                        status="cancelling",
-                        stage="group",
-                        group_idx=idx,
-                        message=f"Group {idx} cancelled.",
-                        payload={"error_code": GROUP_CANCELLED},
-                    )
-                    self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx)
-                    return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
-                except Exception as exc:
-                    logger.exception("Group %d failed: %s", idx, exc)
-                    reporter.emit(
-                        "group_failed",
-                        stage="group",
-                        group_idx=idx,
-                        message=f"Group {idx} failed.",
-                        payload={"error_code": GROUP_FAILED, "error_detail": str(exc)},
-                    )
+            return True
+
+        for idx, video_group in enumerate(groups, start=1):
+            if self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx):
+                return False
+            logger.info("=== Group %d/%d ===", idx, len(groups))
+            try:
+                self.group_processing_service.process_group(
+                    idx,
+                    video_group,
+                    config["model_path"],
+                    config,
+                    output_json_folder,
+                    output_image_folder,
+                    reporter=reporter,
+                    cancellation_token=cancellation_token,
+                )
+            except JobCancelledError:
+                reporter.emit(
+                    "group_cancelled",
+                    status="cancelling",
+                    stage="group",
+                    group_idx=idx,
+                    message=f"Group {idx} cancelled.",
+                    payload={"error_code": GROUP_CANCELLED},
+                )
+                self._cancel_if_requested(reporter, cancellation_token, stage="group", group_idx=idx)
+                return False
+            except Exception as exc:
+                logger.exception("Group %d failed: %s", idx, exc)
+                reporter.emit(
+                    "group_failed",
+                    stage="group",
+                    group_idx=idx,
+                    message=f"Group {idx} failed.",
+                    payload={"error_code": GROUP_FAILED, "error_detail": str(exc)},
+                )
+        return True
+
+    def _render_projection_video(
+        self,
+        config: dict[str, object],
+        *,
+        output_image_folder: str,
+        output_video_folder: str,
+        reporter: JobReporter,
+    ) -> None:
+        output_video_path = os.path.join(
+            output_video_folder,
+            config.get("output_video_filename", "combined_projection.mp4"),
+        )
+        fps = config["fps"]
+        logger.info("Generating combined projection video at %d FPS -> %s", fps, output_video_path)
+        reporter.emit(
+            "video_started",
+            stage="video",
+            payload={"path": output_video_path, "fps": fps},
+        )
+        try:
+            self.video_service.create_projection_video(
+                output_image_folder,
+                output_video_path,
+                fps,
+                reporter=reporter,
+                log_progress=bool(config.get("log_progress", False)),
+            )
+            logger.info("Combined projection video generated successfully.")
+            reporter.artifact("projection_video", output_video_path)
+            reporter.emit(
+                "video_completed",
+                stage="video",
+                payload={"path": output_video_path, "fps": fps},
+            )
+            if config.get("clean_frames_after_video", True):
+                logger.info("Cleaning up intermediate frames in %s ...", output_image_folder)
+                self.directory_service.clear_output_directory(output_image_folder)
+                reporter.emit(
+                    "output_frames_cleared",
+                    stage="video",
+                    payload={"path": output_image_folder, "reason": "post_video_cleanup"},
+                )
+            else:
+                logger.info("Keeping intermediate frames (clean_frames_after_video=false).")
+                reporter.emit(
+                    "output_frames_retained",
+                    stage="video",
+                    payload={"path": output_image_folder},
+                )
+        except Exception as exc:
+            logger.exception("Failed to create video: %s", exc)
+            reporter.emit(
+                "video_failed",
+                stage="video",
+                message="Failed to create projection video.",
+                payload={
+                    "error_code": VIDEO_FAILED,
+                    "error_detail": str(exc),
+                    "path": output_video_path,
+                },
+            )
+
+    def run_request(
+        self,
+        request: RunRequest,
+        *,
+        observer: JobObserver | None = None,
+        job_id: str | None = None,
+        cancellation_token: CancellationToken | None = None,
+    ) -> RunResult | None:
+        """Execute one pipeline run from a typed request."""
+
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        )
+
+        run_store, reporter = self._create_reporter(request, observer=observer, job_id=job_id)
+        reporter.emit(
+            "job_started",
+            status="running",
+            stage="config",
+            payload={"overrides": dict(request.overrides)},
+        )
+        if self._cancel_if_requested(reporter, cancellation_token, stage="config"):
+            return self._build_result(run_store.get(reporter.job_id))
+
+        config, resolved_config = self._resolve_config(request, reporter=reporter)
+        if config is None or resolved_config is None:
+            return self._build_result(run_store.get(reporter.job_id))
+
+        reporter.emit(
+            "config_loaded",
+            stage="config",
+            payload={
+                "run_name": config.get("run_name"),
+                "runtime_root": config.get("runtime_root"),
+                "output_root": config.get("output_root"),
+            },
+        )
+
+        output_image_folder, output_video_folder, output_json_folder = self._prepare_output_dirs(
+            config,
+            reporter=reporter,
+        )
+        if self._cancel_if_requested(reporter, cancellation_token, stage="setup"):
+            return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
+
+        groups = config.get("video_groups", [])
+        reporter.emit("groups_discovered", stage="groups", payload={"count": len(groups)})
+        groups = self._maybe_mask_groups(groups, config, reporter=reporter)
+        if self._cancel_if_requested(reporter, cancellation_token, stage="groups"):
+            return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
+
+        if not self._process_groups(
+            groups,
+            config,
+            output_json_folder=output_json_folder,
+            output_image_folder=output_image_folder,
+            reporter=reporter,
+            cancellation_token=cancellation_token,
+        ):
+            return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
 
         if config.get("create_projection_video", True):
             if self._cancel_if_requested(reporter, cancellation_token, stage="video"):
                 return self._build_result(run_store.get(reporter.job_id), resolved_config=resolved_config)
-            output_video_path = os.path.join(
-                output_video_folder,
-                config.get("output_video_filename", "combined_projection.mp4"),
+            self._render_projection_video(
+                config,
+                output_image_folder=output_image_folder,
+                output_video_folder=output_video_folder,
+                reporter=reporter,
             )
-            fps = config["fps"]
-            logger.info("Generating combined projection video at %d FPS -> %s", fps, output_video_path)
-            reporter.emit(
-                "video_started",
-                stage="video",
-                payload={"path": output_video_path, "fps": fps},
-            )
-            try:
-                self.video_service.create_projection_video(
-                    output_image_folder,
-                    output_video_path,
-                    fps,
-                    reporter=reporter,
-                    log_progress=bool(config.get("log_progress", False)),
-                )
-                logger.info("Combined projection video generated successfully.")
-                reporter.artifact("projection_video", output_video_path)
-                reporter.emit(
-                    "video_completed",
-                    stage="video",
-                    payload={"path": output_video_path, "fps": fps},
-                )
-                if config.get("clean_frames_after_video", True):
-                    logger.info("Cleaning up intermediate frames in %s ...", output_image_folder)
-                    self.directory_service.clear_output_directory(output_image_folder)
-                    reporter.emit(
-                        "output_frames_cleared",
-                        stage="video",
-                        payload={"path": output_image_folder, "reason": "post_video_cleanup"},
-                    )
-                else:
-                    logger.info("Keeping intermediate frames (clean_frames_after_video=false).")
-                    reporter.emit(
-                        "output_frames_retained",
-                        stage="video",
-                        payload={"path": output_image_folder},
-                    )
-            except Exception as exc:
-                logger.exception("Failed to create video: %s", exc)
-                reporter.emit(
-                    "video_failed",
-                    stage="video",
-                    message="Failed to create projection video.",
-                    payload={
-                        "error_code": VIDEO_FAILED,
-                        "error_detail": str(exc),
-                        "path": output_video_path,
-                    },
-                )
 
         snapshot = run_store.get(reporter.job_id)
         reporter.emit(

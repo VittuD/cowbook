@@ -65,9 +65,11 @@ def detect_video_to_frames(
     model_path: str,
     cleanup_config: TrackingCleanupConfig,
     *,
+    model: YOLO | None = None,
     progress_reporter: TrackingProgressReporter | None = None,
 ) -> list[DetectionFrame]:
-    model = YOLO(model_path)
+    owns_model = model is None
+    model = model or YOLO(model_path, task="detect")
     _, width, height, frame_count = _read_video_meta(video_path)
     results = model.predict(
         source=video_path,
@@ -107,9 +109,10 @@ def detect_video_to_frames(
                 xyxy=boxes.xyxy.cpu().numpy().astype(np.float32),
                 conf=boxes.conf.cpu().numpy().astype(np.float32),
                 cls=boxes.cls.cpu().numpy().astype(np.int32),
+                )
             )
-        )
-    del model
+    if owns_model:
+        del model
     return frames
 
 

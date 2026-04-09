@@ -1,12 +1,11 @@
-# group_processor.py
-
+from dataclasses import dataclass
 import logging
 import multiprocessing as _mp_std
 import multiprocessing as mp
 import os
 import time
 from queue import Empty
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 from cowbook.execution import (
     MERGE_FAILED,
@@ -16,18 +15,85 @@ from cowbook.execution import (
     JobCancelledError,
     JobReporter,
 )
+from cowbook.io.csv_converter import json_to_csv
 from cowbook.io.json_merger import merge_json_files
-from cowbook.vision.frame_processor import process_and_save_frames
-from cowbook.vision.tracking import track_video_with_yolo
+from cowbook.vision.frame_processor import ProcessedJsonArtifact, process_and_save_frames
+from cowbook.vision.tracking import load_yolo_model, track_video_with_yolo
 
 logger = logging.getLogger(__name__)
+_WORKER_MODEL_CACHE: dict[tuple[str, str], object] = {}
 
-# Try to reuse the csv_converter implementation to avoid duplication.
-# If it's not importable, we'll log a warning and skip conversion.
-try:
-    from cowbook.io import csv_converter as _csv
-except Exception:  # pragma: no cover
-    _csv = None
+
+@dataclass(slots=True)
+class _TrackingTask:
+    video_path: str
+    output_json: str
+    model_ref: str
+    save: bool
+    tracking_cleanup: dict | None
+    camera_nr: int
+
+
+@dataclass(slots=True)
+class _GroupArtifact:
+    camera_nr: int
+    tracking_json_path: str
+    source_kind: str
+    processed_json_path: str | None = None
+    csv_path: str | None = None
+
+
+def _expected_processed_json_path(tracking_json_path: str) -> str:
+    return tracking_json_path.replace(".json", "_processed.json")
+
+
+def _tracking_mode_from_cleanup(tracking_cleanup: dict | None) -> str:
+    if tracking_cleanup and tracking_cleanup.get("enabled"):
+        return "cleanup"
+    return "track"
+
+
+def _cached_tracking_model(
+    model_cache: dict[tuple[str, str], object],
+    *,
+    model_ref: str,
+    tracking_cleanup: dict | None,
+):
+    cache_key = (model_ref, _tracking_mode_from_cleanup(tracking_cleanup))
+    model = model_cache.get(cache_key)
+    if model is None:
+        model = load_yolo_model(model_ref)
+        model_cache[cache_key] = model
+    return model
+
+
+def _tracking_kwargs(
+    *,
+    save: bool,
+    tracking_cleanup: dict | None,
+    camera_nr: int | None,
+    log_progress: bool,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    progress_event_sink=None,
+    model=None,
+) -> dict:
+    kwargs = {
+        "save": save,
+        "log_progress": log_progress,
+        "camera_nr": camera_nr,
+    }
+    if reporter is not None:
+        kwargs["reporter"] = reporter
+    if group_idx is not None:
+        kwargs["group_idx"] = group_idx
+    if progress_event_sink is not None:
+        kwargs["progress_event_sink"] = progress_event_sink
+    if tracking_cleanup and tracking_cleanup.get("enabled"):
+        kwargs["tracking_cleanup"] = tracking_cleanup
+    if model is not None:
+        kwargs["model"] = model
+    return kwargs
 
 
 def _tracking_worker(
@@ -65,17 +131,84 @@ def _tracking_worker(
                         "payload": payload,
                     }
                 )
-        kwargs = {"save": save}
-        if tracking_cleanup and tracking_cleanup.get("enabled"):
-            kwargs["tracking_cleanup"] = tracking_cleanup
-        kwargs["log_progress"] = log_progress
-        kwargs["camera_nr"] = camera_nr
-        if progress_event_sink is not None:
-            kwargs["progress_event_sink"] = progress_event_sink
+        model = _cached_tracking_model(
+            _WORKER_MODEL_CACHE,
+            model_ref=model_ref,
+            tracking_cleanup=tracking_cleanup,
+        )
+        kwargs = _tracking_kwargs(
+            save=save,
+            tracking_cleanup=tracking_cleanup,
+            camera_nr=camera_nr,
+            log_progress=log_progress,
+            group_idx=group_idx,
+            progress_event_sink=progress_event_sink,
+            model=model,
+        )
         track_video_with_yolo(video_path, output_json, model_ref, **kwargs)
         return output_json, None
     except Exception as e:
         return None, f"Tracking failed for {video_path}: {e}"
+
+
+def _tracking_mode(task: _TrackingTask) -> str:
+    """Return the cache partition for a tracking task.
+
+    Direct tracking uses Ultralytics' built-in tracker callbacks, while cleanup
+    tracking performs a plain detection pass before running the custom tracker.
+    Those modes must not share the same YOLO instance because Ultralytics stores
+    tracking callbacks on the model object.
+    """
+    return _tracking_mode_from_cleanup(task.tracking_cleanup)
+
+
+def _run_tracking_inline(
+    tasks: list[_TrackingTask],
+    *,
+    reporter: JobReporter | None,
+    group_idx: int,
+    log_progress: bool,
+    cancellation_token: CancellationToken | None,
+) -> list[Tuple[str | None, str | None]]:
+    """Run tracking synchronously in the current process.
+
+    This mirrors the pooled execution contract: same return shape, same error
+    formatting, and the same progress/reporter behavior. It is intentionally
+    used only for the effective single-worker case where multiprocessing adds
+    process startup and teardown cost without adding throughput.
+    """
+    model_cache: dict[tuple[str, str], object] = {}
+    results: list[Tuple[str | None, str | None]] = []
+    try:
+        for task in tasks:
+            _raise_if_cancelled(cancellation_token)
+            try:
+                model = _cached_tracking_model(
+                    model_cache,
+                    model_ref=task.model_ref,
+                    tracking_cleanup=task.tracking_cleanup,
+                )
+                kwargs = _tracking_kwargs(
+                    save=task.save,
+                    tracking_cleanup=task.tracking_cleanup,
+                    camera_nr=task.camera_nr,
+                    log_progress=log_progress,
+                    reporter=reporter,
+                    group_idx=group_idx,
+                    model=model,
+                )
+                track_video_with_yolo(
+                    task.video_path,
+                    task.output_json,
+                    task.model_ref,
+                    **kwargs,
+                )
+                results.append((task.output_json, None))
+            except Exception as e:
+                results.append((None, f"Tracking failed for {task.video_path}: {e}"))
+        return results
+    finally:
+        model_cache.clear()
 
 
 def _drain_tracking_progress_queue(progress_queue, reporter: JobReporter | None) -> None:
@@ -94,67 +227,39 @@ def _drain_tracking_progress_queue(progress_queue, reporter: JobReporter | None)
         )
 
 
-def _json_to_csv(json_path: str) -> str | None:
-    """
-    Convert a single processed JSON to CSV using csv_converter's internals.
-    Returns the CSV path on success, or None if conversion couldn't run.
-    """
-    if _csv is None:
-        logger.warning(
-            "csv_converter not available; skipping CSV conversion for %s", json_path
-        )
-        return None
-
-    csv_path = os.path.splitext(json_path)[0] + ".csv"
-
-    try:
-        doc = _csv._load_json(json_path)  # type: ignore[attr-defined]
-
-        def _rows():
-            yield from _csv._iter_rows_from_json(doc, source_tag=None)  # type: ignore[attr-defined]
-
-        _csv._write_csv(_rows(), csv_path, include_source=False)  # type: ignore[attr-defined]
-        logger.info("Wrote CSV: %s", csv_path)
-        return csv_path
-    except Exception as e:
-        logger.exception("Failed converting %s to CSV: %s", json_path, e)
-        return None
-
-
-def process_video_group(
+def _build_tracking_worker_args(
+    task: _TrackingTask,
+    *,
+    log_progress: bool,
     group_idx: int,
+    progress_queue,
+) -> tuple[object, ...]:
+    return (
+        task.video_path,
+        task.output_json,
+        task.model_ref,
+        task.save,
+        task.tracking_cleanup,
+        task.camera_nr,
+        log_progress,
+        group_idx,
+        progress_queue,
+    )
+
+
+def _collect_source_entries_and_tracking_tasks(
     video_group: List[dict],
+    *,
     model_ref: str,
     config: dict,
     output_json_folder: str,
-    output_image_folder: str,
-    reporter: JobReporter | None = None,
-    cancellation_token: CancellationToken | None = None,
-) -> Tuple[List[str], List[int], str]:
-    """
-    Process one group of videos:
-      - run tracking when needed (or accept precomputed JSONs),
-      - collect JSON paths and camera numbers,
-      - merge per-group JSONs into a single file,
-      - render projected frames (parallel if configured),
-      - optionally convert all *_processed.json (and merged) to CSV.
-
-    Returns:
-      (output_json_paths, camera_nrs, merged_json_path)
-    """
-    source_entries: List[Tuple[str, int]] = []
+    reporter: JobReporter | None,
+    group_idx: int,
+) -> tuple[list[_GroupArtifact], list[_TrackingTask], int]:
+    source_artifacts: list[_GroupArtifact] = []
+    tasks: list[_TrackingTask] = []
     precomputed_json_count = 0
-    _raise_if_cancelled(cancellation_token)
 
-    if reporter is not None:
-        reporter.emit(
-            "group_started",
-            stage="group",
-            group_idx=group_idx,
-            payload={"input_count": len(video_group)},
-        )
-
-    tasks: List[Tuple[str, str, object, bool, int]] = []
     for video_info in video_group:
         video_path = video_info["path"]
         camera_nr = int(video_info["camera_nr"])
@@ -163,7 +268,13 @@ def process_video_group(
         if str(video_path).lower().endswith(".json"):
             output_json = video_path
             logger.debug("Using existing tracking JSON: %s", output_json)
-            source_entries.append((output_json, camera_nr))
+            source_artifacts.append(
+                _GroupArtifact(
+                    camera_nr=camera_nr,
+                    tracking_json_path=output_json,
+                    source_kind="precomputed",
+                )
+            )
             precomputed_json_count += 1
             if reporter is not None:
                 reporter.artifact(
@@ -175,211 +286,291 @@ def process_video_group(
             continue
 
         base = os.path.splitext(os.path.basename(video_path))[0]
-        output_json = os.path.join(output_json_folder, f"{base}_tracking.json")
         tasks.append(
-            (
-                video_path,
-                output_json,
-                config.get("model_path", None) if "model_path" in config else model_ref,
-                bool(config.get("save_tracking_video", False)),
-                config.get("tracking_cleanup"),
-                camera_nr,
+            _TrackingTask(
+                video_path=video_path,
+                output_json=os.path.join(output_json_folder, f"{base}_tracking.json"),
+                model_ref=config["model_path"] if "model_path" in config else model_ref,
+                save=bool(config.get("save_tracking_video", False)),
+                tracking_cleanup=config.get("tracking_cleanup"),
+                camera_nr=camera_nr,
             )
         )
 
-    tracking_errors: List[str] = []
-    if tasks:
-        requested_tracking_concurrency = int(config["tracking_concurrency"])
-        effective_tracking_concurrency = min(requested_tracking_concurrency, len(tasks))
+    return source_artifacts, tasks, precomputed_json_count
 
-        logger.info(
-            "Launching tracking with requested concurrency %d and effective concurrency %d for %d video(s)",
-            requested_tracking_concurrency,
-            effective_tracking_concurrency,
-            len(tasks),
-        )
-        if reporter is not None:
-            reporter.emit(
-                "tracking_started",
-                stage="tracking",
-                group_idx=group_idx,
-                payload={
-                    "video_count": len(tasks),
-                    "requested_tracking_concurrency": requested_tracking_concurrency,
-                    "effective_tracking_concurrency": effective_tracking_concurrency,
-                },
-            )
 
-        ctx = mp.get_context("spawn")
-        log_progress = bool(config.get("log_progress", False))
-        if reporter is None:
-            with ctx.Pool(processes=effective_tracking_concurrency) as pool:
-                results = pool.starmap(
-                    _tracking_worker,
-                    [
-                        (
-                            video_path,
-                            output_json,
-                            model_ref,
-                            save,
-                            tracking_cleanup,
-                            camera_nr,
-                            log_progress,
-                            group_idx,
-                            None,
-                        )
-                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
-                    ],
-                )
-        else:
-            with _mp_std.Manager() as manager:
-                progress_queue = manager.Queue()
-                with ctx.Pool(processes=effective_tracking_concurrency) as pool:
-                    async_results = [
-                        pool.apply_async(
-                            _tracking_worker,
-                            (
-                                video_path,
-                                output_json,
-                                model_ref,
-                                save,
-                                tracking_cleanup,
-                                camera_nr,
-                                log_progress,
-                                group_idx,
-                                progress_queue,
-                            ),
-                        )
-                        for video_path, output_json, model_ref, save, tracking_cleanup, camera_nr in tasks
-                    ]
-                    while not all(result.ready() for result in async_results):
-                        _drain_tracking_progress_queue(progress_queue, reporter)
-                        time.sleep(0.1)
-                    _drain_tracking_progress_queue(progress_queue, reporter)
-                    results = [result.get() for result in async_results]
-        _raise_if_cancelled(cancellation_token)
+def _run_tracking_pool(
+    tasks: list[_TrackingTask],
+    *,
+    effective_tracking_concurrency: int,
+    reporter: JobReporter | None,
+    group_idx: int,
+    log_progress: bool,
+) -> list[Tuple[str | None, str | None]]:
+    """Run tracking in worker processes using the supported pooled path.
 
-        for (output_json, err), (_, _, _, _, _, camera_nr) in zip(results, tasks):
-            if err:
-                logger.error("%s", err)
-                tracking_errors.append(err)
-                continue
-            if output_json:
-                source_entries.append((output_json, camera_nr))
-                if reporter is not None:
-                    reporter.artifact(
-                        "tracking_json",
-                        output_json,
+    Each worker maintains its own process-local model cache, so repeated tasks
+    for the same `(model_ref, tracking_mode)` reuse one YOLO instance instead
+    of paying load cost for every video. This is the supported high-throughput
+    path for effective tracking concurrency greater than one.
+    """
+    ctx = mp.get_context("spawn")
+    if reporter is None:
+        with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+            return pool.starmap(
+                _tracking_worker,
+                [
+                    _build_tracking_worker_args(
+                        task,
+                        log_progress=log_progress,
                         group_idx=group_idx,
-                        metadata={"camera_nr": camera_nr, "source": "inference"},
+                        progress_queue=None,
                     )
+                    for task in tasks
+                ],
+            )
 
+    with _mp_std.Manager() as manager:
+        progress_queue = manager.Queue()
+        with ctx.Pool(processes=effective_tracking_concurrency) as pool:
+            async_results = [
+                pool.apply_async(
+                    _tracking_worker,
+                    _build_tracking_worker_args(
+                        task,
+                        log_progress=log_progress,
+                        group_idx=group_idx,
+                        progress_queue=progress_queue,
+                    ),
+                )
+                for task in tasks
+            ]
+            while not all(result.ready() for result in async_results):
+                _drain_tracking_progress_queue(progress_queue, reporter)
+                time.sleep(0.1)
+            _drain_tracking_progress_queue(progress_queue, reporter)
+            return [result.get() for result in async_results]
+
+
+def _run_tracking_tasks(
+    tasks: list[_TrackingTask],
+    *,
+    config: dict,
+    reporter: JobReporter | None,
+    group_idx: int,
+    precomputed_json_count: int,
+    cancellation_token: CancellationToken | None,
+) -> tuple[list[tuple[str, int]], list[str]]:
+    """Execute group tracking with one public concurrency knob.
+
+    The runtime contract is intentionally simple: effective concurrency one uses
+    the inline path, while higher values use the pooled worker path. Both keep
+    the same result shape, event flow, and tracking-mode isolation guarantees.
+    """
+    if not tasks:
         if reporter is not None:
             reporter.emit(
-                "tracking_completed",
+                "tracking_skipped",
                 stage="tracking",
                 group_idx=group_idx,
-                payload={
-                    "success_count": len(source_entries) - precomputed_json_count,
-                    "failure_count": len(tracking_errors),
-                    "precomputed_json_count": precomputed_json_count,
-                },
+                payload={"precomputed_json_count": precomputed_json_count},
             )
-            if tracking_errors:
-                reporter.emit(
-                    "tracking_failed",
-                    stage="tracking",
-                    group_idx=group_idx,
-                    message="One or more tracking jobs failed.",
-                    payload={
-                        "error_code": TRACKING_FAILED,
-                        "error_detail": "; ".join(tracking_errors),
-                        "failure_count": len(tracking_errors),
-                    },
-                )
-    elif reporter is not None:
+        return [], []
+
+    requested_tracking_concurrency = int(config["tracking_concurrency"])
+    effective_tracking_concurrency = min(requested_tracking_concurrency, len(tasks))
+
+    logger.info(
+        "Launching tracking with requested concurrency %d and effective concurrency %d for %d video(s)",
+        requested_tracking_concurrency,
+        effective_tracking_concurrency,
+        len(tasks),
+    )
+    if reporter is not None:
         reporter.emit(
-            "tracking_skipped",
+            "tracking_started",
             stage="tracking",
             group_idx=group_idx,
-            payload={"precomputed_json_count": precomputed_json_count},
+            payload={
+                "video_count": len(tasks),
+                "requested_tracking_concurrency": requested_tracking_concurrency,
+                "effective_tracking_concurrency": effective_tracking_concurrency,
+            },
         )
 
-    output_json_paths = [path for path, _camera_nr in source_entries]
-    camera_nrs = [camera_nr for _path, camera_nr in source_entries]
-
-    if not output_json_paths:
-        raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
-
-    _raise_if_cancelled(cancellation_token)
-    if reporter is not None:
-        reporter.emit(
-            "processing_started",
-            stage="processing",
-            group_idx=group_idx,
-            payload={"input_json_count": len(output_json_paths)},
-        )
-    try:
-        processed_json_paths = process_and_save_frames(
-            output_json_paths,
-            camera_nrs,
-            output_image_folder,
-            config["calibration_file"],
-            num_plot_workers=config.get("num_plot_workers", 0),
-            output_image_format=config.get("output_image_format", "png"),
-            cancellation_token=cancellation_token,
+    log_progress = bool(config.get("log_progress", False))
+    if effective_tracking_concurrency == 1:
+        results = _run_tracking_inline(
+            tasks,
             reporter=reporter,
             group_idx=group_idx,
-            log_progress=bool(config.get("log_progress", False)),
+            log_progress=log_progress,
+            cancellation_token=cancellation_token,
         )
-    except Exception as e:
-        if isinstance(e, JobCancelledError):
-            raise
-        logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
-        processed_json_paths = []
-        if reporter is not None:
-            reporter.emit(
-                "processing_failed",
-                stage="processing",
-                group_idx=group_idx,
-                message=f"Frame processing failed for group {group_idx}.",
-                payload={"error_code": PROCESSING_FAILED, "error_detail": str(e)},
-            )
+    else:
+        results = _run_tracking_pool(
+            tasks,
+            effective_tracking_concurrency=effective_tracking_concurrency,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=log_progress,
+        )
+    _raise_if_cancelled(cancellation_token)
 
-    processed_camera_nrs = [
-        camera_nr
-        for input_json_path, camera_nr in source_entries
-        if input_json_path.replace(".json", "_processed.json") in processed_json_paths
-    ]
+    tracked_source_entries: list[tuple[str, int]] = []
+    tracking_errors: list[str] = []
+    for (output_json, err), task in zip(results, tasks):
+        if err:
+            logger.error("%s", err)
+            tracking_errors.append(err)
+            continue
+        if output_json:
+            tracked_source_entries.append((output_json, task.camera_nr))
+            if reporter is not None:
+                reporter.artifact(
+                    "tracking_json",
+                    output_json,
+                    group_idx=group_idx,
+                    metadata={"camera_nr": task.camera_nr, "source": "inference"},
+                )
 
     if reporter is not None:
-        for processed_json_path, camera_nr in zip(processed_json_paths, processed_camera_nrs):
-            reporter.artifact(
-                "processed_json",
-                processed_json_path,
-                group_idx=group_idx,
-                metadata={"camera_nr": camera_nr},
-            )
         reporter.emit(
-            "processing_completed",
-            stage="processing",
+            "tracking_completed",
+            stage="tracking",
             group_idx=group_idx,
-            payload={"processed_json_count": len(processed_json_paths)},
+            payload={
+                "success_count": len(tracked_source_entries),
+                "failure_count": len(tracking_errors),
+                "precomputed_json_count": precomputed_json_count,
+            },
         )
+        if tracking_errors:
+            reporter.emit(
+                "tracking_failed",
+                stage="tracking",
+                group_idx=group_idx,
+                message="One or more tracking jobs failed.",
+                payload={
+                    "error_code": TRACKING_FAILED,
+                    "error_detail": "; ".join(tracking_errors),
+                    "failure_count": len(tracking_errors),
+                },
+            )
 
-    for json_path in output_json_paths:
+    return tracked_source_entries, tracking_errors
+
+
+def _tracking_artifacts_from_entries(
+    tracked_source_entries: list[tuple[str, int]],
+) -> list[_GroupArtifact]:
+    return [
+        _GroupArtifact(
+            camera_nr=camera_nr,
+            tracking_json_path=tracking_json_path,
+            source_kind="inference",
+        )
+        for tracking_json_path, camera_nr in tracked_source_entries
+    ]
+
+
+def _normalize_processed_artifacts(
+    processed_results: Iterable[ProcessedJsonArtifact | str],
+    *,
+    source_artifacts: list[_GroupArtifact],
+) -> list[ProcessedJsonArtifact]:
+    normalized: list[ProcessedJsonArtifact] = []
+    by_expected_path = {
+        _expected_processed_json_path(artifact.tracking_json_path): artifact
+        for artifact in source_artifacts
+    }
+
+    for item in processed_results:
+        if isinstance(item, ProcessedJsonArtifact):
+            normalized.append(item)
+            continue
+        artifact = by_expected_path.get(item)
+        if artifact is None:
+            continue
+        normalized.append(
+            ProcessedJsonArtifact(
+                input_json_path=artifact.tracking_json_path,
+                processed_json_path=item,
+                camera_nr=artifact.camera_nr,
+            )
+        )
+    return normalized
+
+
+def _attach_processed_artifacts(
+    source_artifacts: list[_GroupArtifact],
+    processed_artifacts: list[ProcessedJsonArtifact],
+) -> list[_GroupArtifact]:
+    by_tracking_path = {artifact.tracking_json_path: artifact for artifact in source_artifacts}
+    attached: list[_GroupArtifact] = []
+    for processed_artifact in processed_artifacts:
+        source_artifact = by_tracking_path.get(processed_artifact.input_json_path)
+        if source_artifact is None:
+            continue
+        source_artifact.processed_json_path = processed_artifact.processed_json_path
+        attached.append(source_artifact)
+    return attached
+
+
+def _emit_processed_json_artifacts(
+    processed_artifacts: list[_GroupArtifact],
+    *,
+    reporter: JobReporter | None,
+    group_idx: int,
+) -> None:
+    if reporter is None:
+        return
+
+    for artifact in processed_artifacts:
+        assert artifact.processed_json_path is not None
+        reporter.artifact(
+            "processed_json",
+            artifact.processed_json_path,
+            group_idx=group_idx,
+            metadata={"camera_nr": artifact.camera_nr},
+        )
+    reporter.emit(
+        "processing_completed",
+        stage="processing",
+        group_idx=group_idx,
+        payload={"processed_json_count": len(processed_artifacts)},
+    )
+
+
+def _remove_unprocessed_jsons(source_artifacts: list[_GroupArtifact]) -> None:
+    for artifact in source_artifacts:
         try:
-            if os.path.exists(json_path) and json_path not in processed_json_paths:
+            json_path = artifact.tracking_json_path
+            if os.path.exists(json_path) and artifact.processed_json_path is None:
                 os.remove(json_path)
                 logger.debug("Deleted unprocessed JSON: %s", json_path)
         except Exception as e:
             logger.warning("Failed to delete unprocessed JSON %s: %s", json_path, e)
 
-    merged_json_path = os.path.join(
-        output_json_folder, f"group_{group_idx}_merged_processed.json"
-    )
+
+def _merge_processed_jsons(
+    *,
+    group_idx: int,
+    output_json_folder: str,
+    processed_artifacts: list[_GroupArtifact],
+    reporter: JobReporter | None,
+    cancellation_token: CancellationToken | None,
+) -> str:
+    merged_json_path = os.path.join(output_json_folder, f"group_{group_idx}_merged_processed.json")
     _raise_if_cancelled(cancellation_token)
     try:
+        processed_json_paths = [
+            artifact.processed_json_path
+            for artifact in processed_artifacts
+            if artifact.processed_json_path is not None
+        ]
+        processed_camera_nrs = [artifact.camera_nr for artifact in processed_artifacts]
         if processed_json_paths:
             if reporter is not None:
                 reporter.emit(
@@ -422,32 +613,173 @@ def process_video_group(
                     "path": merged_json_path,
                 },
             )
+    return merged_json_path
 
-    if config.get("convert_to_csv", True):
-        csv_paths: List[str] = []
-        for pjson in processed_json_paths:
-            _raise_if_cancelled(cancellation_token)
-            if pjson and pjson.endswith("_processed.json") and os.path.exists(pjson):
-                csv_path = _json_to_csv(pjson)
-                if csv_path:
-                    csv_paths.append(csv_path)
-                    if reporter is not None:
-                        reporter.artifact("csv", csv_path, group_idx=group_idx)
 
-        if merged_json_path and os.path.exists(merged_json_path):
-            _raise_if_cancelled(cancellation_token)
-            csv_path = _json_to_csv(merged_json_path)
+def _export_csv_artifacts(
+    *,
+    config: dict,
+    processed_artifacts: list[_GroupArtifact],
+    merged_json_path: str,
+    reporter: JobReporter | None,
+    group_idx: int,
+    cancellation_token: CancellationToken | None,
+) -> list[str]:
+    if not config.get("convert_to_csv", True):
+        return []
+
+    csv_paths: list[str] = []
+    for artifact in processed_artifacts:
+        _raise_if_cancelled(cancellation_token)
+        json_path = artifact.processed_json_path
+        if json_path is None:
+            continue
+        if json_path and json_path.endswith("_processed.json") and os.path.exists(json_path):
+            csv_path = json_to_csv(json_path)
             if csv_path:
+                artifact.csv_path = csv_path
                 csv_paths.append(csv_path)
                 if reporter is not None:
                     reporter.artifact("csv", csv_path, group_idx=group_idx)
+
+    if merged_json_path and os.path.exists(merged_json_path):
+        _raise_if_cancelled(cancellation_token)
+        csv_path = json_to_csv(merged_json_path)
+        if csv_path:
+            csv_paths.append(csv_path)
+            if reporter is not None:
+                reporter.artifact("csv", csv_path, group_idx=group_idx)
+
+    if reporter is not None:
+        reporter.emit(
+            "csv_export_completed",
+            stage="export",
+            group_idx=group_idx,
+            payload={"csv_count": len(csv_paths)},
+        )
+
+    return csv_paths
+
+
+def process_video_group(
+    group_idx: int,
+    video_group: List[dict],
+    model_ref: str,
+    config: dict,
+    output_json_folder: str,
+    output_image_folder: str,
+    reporter: JobReporter | None = None,
+    cancellation_token: CancellationToken | None = None,
+) -> Tuple[List[str], List[int], str]:
+    """
+    Process one group of videos:
+      - run tracking when needed (or accept precomputed JSONs),
+      - collect JSON paths and camera numbers,
+      - merge per-group JSONs into a single file,
+      - render projected frames (parallel if configured),
+      - optionally convert all *_processed.json (and merged) to CSV.
+
+    Returns:
+      (output_json_paths, camera_nrs, merged_json_path)
+    """
+    _raise_if_cancelled(cancellation_token)
+
+    if reporter is not None:
+        reporter.emit(
+            "group_started",
+            stage="group",
+            group_idx=group_idx,
+            payload={"input_count": len(video_group)},
+        )
+
+    source_artifacts, tasks, precomputed_json_count = _collect_source_entries_and_tracking_tasks(
+        video_group,
+        model_ref=model_ref,
+        config=config,
+        output_json_folder=output_json_folder,
+        reporter=reporter,
+        group_idx=group_idx,
+    )
+    tracked_source_entries, _ = _run_tracking_tasks(
+        tasks,
+        config=config,
+        reporter=reporter,
+        group_idx=group_idx,
+        precomputed_json_count=precomputed_json_count,
+        cancellation_token=cancellation_token,
+    )
+    source_artifacts.extend(_tracking_artifacts_from_entries(tracked_source_entries))
+
+    output_json_paths = [artifact.tracking_json_path for artifact in source_artifacts]
+    camera_nrs = [artifact.camera_nr for artifact in source_artifacts]
+
+    if not output_json_paths:
+        raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
+
+    _raise_if_cancelled(cancellation_token)
+    if reporter is not None:
+        reporter.emit(
+            "processing_started",
+            stage="processing",
+            group_idx=group_idx,
+            payload={"input_json_count": len(output_json_paths)},
+        )
+    try:
+        processed_results = process_and_save_frames(
+            output_json_paths,
+            camera_nrs,
+            output_image_folder,
+            config["calibration_file"],
+            num_plot_workers=config.get("num_plot_workers", 0),
+            output_image_format=config.get("output_image_format", "png"),
+            cancellation_token=cancellation_token,
+            reporter=reporter,
+            group_idx=group_idx,
+            log_progress=bool(config.get("log_progress", False)),
+            return_artifacts=True,
+        )
+        processed_artifacts = _normalize_processed_artifacts(
+            processed_results,
+            source_artifacts=source_artifacts,
+        )
+    except Exception as e:
+        if isinstance(e, JobCancelledError):
+            raise
+        logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
+        processed_artifacts = []
         if reporter is not None:
             reporter.emit(
-                "csv_export_completed",
-                stage="export",
+                "processing_failed",
+                stage="processing",
                 group_idx=group_idx,
-                payload={"csv_count": len(csv_paths)},
+                message=f"Frame processing failed for group {group_idx}.",
+                payload={"error_code": PROCESSING_FAILED, "error_detail": str(e)},
             )
+
+    processed_group_artifacts = _attach_processed_artifacts(source_artifacts, processed_artifacts)
+    _emit_processed_json_artifacts(
+        processed_group_artifacts,
+        reporter=reporter,
+        group_idx=group_idx,
+    )
+    _remove_unprocessed_jsons(source_artifacts)
+
+    merged_json_path = _merge_processed_jsons(
+        group_idx=group_idx,
+        output_json_folder=output_json_folder,
+        processed_artifacts=processed_group_artifacts,
+        reporter=reporter,
+        cancellation_token=cancellation_token,
+    )
+
+    _export_csv_artifacts(
+        config=config,
+        processed_artifacts=processed_group_artifacts,
+        merged_json_path=merged_json_path,
+        reporter=reporter,
+        group_idx=group_idx,
+        cancellation_token=cancellation_token,
+    )
 
     if reporter is not None:
         reporter.emit(
@@ -456,7 +788,7 @@ def process_video_group(
             group_idx=group_idx,
             payload={
                 "tracking_json_count": len(output_json_paths),
-                "processed_json_count": len(processed_json_paths),
+                "processed_json_count": len(processed_group_artifacts),
                 "merged_json_path": merged_json_path,
             },
         )

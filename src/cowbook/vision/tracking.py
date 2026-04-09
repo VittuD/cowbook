@@ -1,6 +1,4 @@
 # tracking.py
-
-import json
 import logging
 from pathlib import Path
 
@@ -18,6 +16,7 @@ from cowbook.core.contracts import (
 from cowbook.core.runtime import assets_root
 from cowbook.execution.observers import JobReporter
 from cowbook.execution.progress import TrackingProgressReporter
+from cowbook.io.json_utils import dump_path_compact
 from cowbook.vision.cleanup import (
     compute_short_track_ids,
     postprocess_tracking_document,
@@ -37,6 +36,7 @@ def _track_video_direct(
     model_path,
     save=False,
     *,
+    model: YOLO | None = None,
     log_progress: bool = False,
     reporter: JobReporter | None = None,
     group_idx: int | None = None,
@@ -56,8 +56,10 @@ def _track_video_direct(
     extracts bounding boxes and class labels, then saves the results in JSON format. The model is unloaded
     at the end to free resources.
     """
-    # Load the YOLO model from the provided model path
-    model = load_yolo_model(model_path)
+    # Reuse a caller-provided model when available. Ultralytics resets tracker
+    # state per call when persist=False, so this preserves tracking semantics.
+    owns_model = model is None
+    model = model or load_yolo_model(model_path)
 
     # Open video to get total frame count
     cap = cv2.VideoCapture(video_path)
@@ -72,6 +74,7 @@ def _track_video_direct(
         conf=0.45,      # ↑ fewer false positives
         iou=0.5,        # NMS
         tracker=str(assets_root() / "trackers" / "cows_botsort.yaml"),
+        verbose=False,
     )
     frames: list[TrackingFrame] = []
     progress_reporter = TrackingProgressReporter(
@@ -125,14 +128,14 @@ def _track_video_direct(
 
     # Save tracking data to a JSON file
     json_data = TrackingDocument(frames=frames).to_dict()
-    with open(output_json_path, 'w') as f:
-        json.dump(json_data, f, indent=4)
+    dump_path_compact(output_json_path, json_data)
     logger.info("Tracking data saved to %s", output_json_path)
     if log_progress or reporter is not None or progress_event_sink is not None:
         progress_reporter.stage_completed()
 
     # Unload the model to free resources
-    del model
+    if owns_model:
+        del model
 
 
 def _track_video_with_cleanup(
@@ -142,6 +145,7 @@ def _track_video_with_cleanup(
     *,
     save: bool,
     cleanup_config: TrackingCleanupConfig,
+    model: YOLO | None = None,
     log_progress: bool = False,
     reporter: JobReporter | None = None,
     group_idx: int | None = None,
@@ -164,6 +168,7 @@ def _track_video_with_cleanup(
         video_path,
         model_path,
         cleanup_config,
+        model=model,
         progress_reporter=detect_progress,
     )
     detect_progress.stage_completed()
@@ -257,8 +262,7 @@ def _track_video_with_cleanup(
         tracked = postprocess_tracking_document(tracked, cleanup_config)
         postprocess_progress.stage_completed()
 
-    with open(output_json_path, "w") as f:
-        json.dump(tracked.to_dict(), f, indent=4)
+    dump_path_compact(output_json_path, tracked.to_dict())
     logger.info("Tracking data saved to %s", output_json_path)
 
 
@@ -273,6 +277,7 @@ def track_video_with_yolo(
     group_idx: int | None = None,
     camera_nr: int | None = None,
     progress_event_sink=None,
+    model: YOLO | None = None,
 ):
     cleanup_config = TrackingCleanupConfig.from_mapping(tracking_cleanup)
     if cleanup_config.enabled:
@@ -282,6 +287,7 @@ def track_video_with_yolo(
             model_path,
             save=save,
             cleanup_config=cleanup_config,
+            model=model,
             log_progress=log_progress,
             reporter=reporter,
             group_idx=group_idx,
@@ -294,6 +300,7 @@ def track_video_with_yolo(
         output_json_path,
         model_path,
         save=save,
+        model=model,
         log_progress=log_progress,
         reporter=reporter,
         group_idx=group_idx,
@@ -311,4 +318,4 @@ def load_yolo_model(model_path):
     Returns:
         YOLO: Loaded YOLO model instance.
     """
-    return YOLO(model_path)
+    return YOLO(model_path, task="detect")

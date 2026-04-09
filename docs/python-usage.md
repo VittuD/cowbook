@@ -30,6 +30,8 @@ from cowbook import load_pipeline_config
 config = load_pipeline_config("configs/smoke.json", overrides={"run_name": "demo"})
 ```
 
+`load_pipeline_config(...)` raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and `ValueError` for invalid runtime config values.
+
 Validated typed config from an in-memory object:
 
 ```python
@@ -43,6 +45,10 @@ config = load_pipeline_config_object(
     overrides={"run_name": "demo"},
 )
 ```
+
+`load_pipeline_config_object(...)` applies the same runtime validation rules and does not mutate the input object.
+
+At execution time, `tracking_concurrency` is still one public runtime knob. Effective concurrency `1` uses the same tracking/reporting contract as the multi-process path, but runs tracking inline to avoid single-worker process overhead. Higher effective values use worker processes, and each worker may reuse one YOLO model instance per `(model_path, tracking mode)` during the group run instead of reloading it for every video. Direct tracking and cleanup tracking stay isolated from each other so tracker state does not bleed across modes.
 
 Typed programmatic submission:
 

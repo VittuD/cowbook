@@ -170,6 +170,10 @@ materialized = materialize_pipeline_config(config_object, "var/tmp/demo.json")
 
 Request-based runtime entrypoints return a normalized `RunResult`, which wraps the underlying `JobRun` plus summarized artifact paths.
 
+Config loading is strict: file-based loading raises `FileNotFoundError` for missing files, `json.JSONDecodeError` for invalid JSON, and both file-based and in-memory config normalization raise `ValueError` for invalid runtime values. In-memory config loading does not mutate the caller-provided object.
+
+For GPU-oriented runs, `tracking_concurrency` remains one public runtime knob. Effective concurrency `1` is the conservative baseline on smaller cards: Cowbook keeps the same execution events and output contract, but bypasses multiprocessing and reuses one YOLO model instance per `(model_path, tracking mode)` inside a group to avoid unnecessary startup cost. Higher effective values use worker processes, and each worker now reuses its own model instance for repeated tasks within the same group instead of reloading it for every video. In practice, that means small GPUs and short jobs still often prefer `1`, while larger GPUs and longer jobs can benefit from higher values.
+
 Package-facing exports are `PipelineRunner`, `PipelineConfig`, `RunRequest`, `RunResult`, `JobRun`, `JobEvent`, `JobArtifact`, `CancellationToken`, `JobCancelledError`, `load_pipeline_config()`, `load_pipeline_config_object()`, `materialize_pipeline_config()`, `run_pipeline()`, and `run_pipeline_request()`.
 
 ## Docker
@@ -178,6 +182,8 @@ Docker images included:
 
 - `docker/Dockerfile`: runtime based on the official Ultralytics image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
+- `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
+- `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
 
 The image:
 
@@ -237,6 +243,36 @@ To override configs or assets from the host instead of using the copies baked in
 
 The cleanup benchmark image runs the optional `tracking_cleanup` path on prepared long videos, saves tracking JSON and annotated tracking videos, renders projected barn frames, and assembles a combined projection video. Its current defaults target `/scratch/vet/var/...` and enable `--log-progress`.
 
+The backend benchmark image runs `tools.benchmark_tracking_backends` against the four sample videos, supports both sequential shared-model runs and `process_parallel_models` runs such as `--process-workers 2`, exports `onnx` and `engine` candidates from the baseline `.pt` model when the environment supports that, and writes a JSON summary under `var/benchmarks/`. Use this image for backend export comparison, not as the primary source of truth for runtime concurrency decisions. The same tool can also benchmark prebuilt artifacts through `--onnx-artifact-path` and `--engine-artifact-path`.
+
+The TensorRT concurrency image runs `tools.benchmark_runtime_tracking_concurrency`, exports or reuses one TensorRT engine, then benchmarks Cowbook's real `group_processor` tracking path across the requested tracking concurrencies. Concurrency `1` uses the runtime inline path; higher values use the runtime multiprocessing path. This is the benchmark to use when deciding how runtime concurrency should behave on a target machine. Its defaults follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
+
+Build the TensorRT concurrency image:
+
+```bash
+docker build -f docker/Dockerfile.tensorrt-bench -t cowbook-tensorrt-bench .
+```
+
+Run the default `1 2 3 4` sweep on a GPU host:
+
+```bash
+docker run --rm -it \
+  --gpus all \
+  -v /scratch/vet:/scratch/vet \
+  cowbook-tensorrt-bench
+```
+
+Run the same image on a remote A40 box with an explicit output path:
+
+```bash
+docker run --rm -it \
+  --gpus all \
+  -v /scratch/vet:/scratch/vet \
+  cowbook-tensorrt-bench \
+  --concurrency-values 1 2 3 4 \
+  --output /scratch/vet/var/benchmarks/tensorrt_a40_1_4.json
+```
+
 ## Config Model
 
 The runtime contract is a JSON config plus a small CLI override surface.
@@ -270,7 +306,11 @@ Minimal example:
 Notes:
 
 - input paths may be videos or precomputed tracking JSON files
-- `tracking_concurrency` defaults to `1` intentionally to avoid GPU contention
+- `tracking_concurrency` defaults to `1` as the conservative baseline
+- when effective tracking concurrency is `1`, tracking runs inline instead of through a worker process
+- the inline single-worker path may reuse one YOLO model instance per `(model_path, tracking mode)` within a group
+- when effective tracking concurrency is greater than `1`, each worker process may reuse its own model instance for repeated tasks within the same group
+- direct tracking and cleanup tracking do not share a reused model instance, so tracker state does not bleed across modes
 - `log_progress` enables human-readable milestone logs for long tracking stages
 - masks default to `assets/masks/*.png`
 - masked-video cache defaults to `var/cache/masked_videos`
@@ -388,7 +428,7 @@ Included examples:
 
 - Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
-- `tracking_concurrency > 1` can increase GPU memory pressure significantly.
+- `tracking_concurrency > 1` can increase GPU memory pressure significantly, but it is now a supported throughput path rather than a legacy fallback.
 - Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py), with fixed correspondences stored in [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json).
 - YOLO API behavior can drift across `ultralytics` releases.
 

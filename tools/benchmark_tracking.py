@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import multiprocessing as mp
 import os
 import subprocess
@@ -16,6 +15,7 @@ from ultralytics import YOLO
 from ultralytics.utils.ops import clean_str
 
 from cowbook.core.runtime import assets_root
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 
 
 @dataclass(slots=True)
@@ -60,7 +60,7 @@ def _run_sequential_shared_model(
     model_path: str,
     tracker_config: str,
 ) -> BenchmarkModeResult:
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     per_source_frame_count: dict[str, int] = {}
     per_source_elapsed_s: dict[str, float] = {}
     start = time.perf_counter()
@@ -84,7 +84,7 @@ def _run_multistream_shared_model(
     model_path: str,
     tracker_config: str,
 ) -> BenchmarkModeResult:
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     sanitized_to_source = {clean_str(path).replace(os.sep, "_"): path for path in videos}
     per_source_frame_count = {path: 0 for path in videos}
     with tempfile.TemporaryDirectory(prefix="cowbook_streams_") as tmpdir:
@@ -120,7 +120,7 @@ def _parallel_worker(video_path: str, model_path: str, tracker_config: str) -> t
     except Exception:
         pass
 
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     frame_count = 0
     start = time.perf_counter()
     for _ in model.track(source=video_path, stream=True, **_model_track_kwargs(tracker_config)):
@@ -334,7 +334,7 @@ def _prepare_benchmark_videos(
 
 def _print_summary(summary: dict[str, Any]) -> None:
     print("Tracking benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
 
 
 def _parse_args() -> argparse.Namespace:
@@ -519,7 +519,7 @@ def main() -> int:
                 baseline / float(result["best_elapsed_s"]) if result["best_elapsed_s"] else None
             )
 
-    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(output_path, summary)
     _print_summary(summary)
     return 0
 

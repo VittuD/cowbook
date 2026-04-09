@@ -12,19 +12,18 @@ CLI:
 """
 
 import argparse
-import json
 import logging
 from typing import Any, Dict, List
 
 from cowbook.core.contracts import TrackingDocument
 from cowbook.core.transforms import merge_tracking_documents
+from cowbook.io.json_utils import dump_path_compact, load_path
 
 logger = logging.getLogger(__name__)
 
 
 def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return TrackingDocument.from_mapping(json.load(f)).to_dict()
+    return TrackingDocument.from_mapping(load_path(path)).to_dict()
 
 def merge_json_files(
     input_files: List[str],
@@ -46,8 +45,7 @@ def merge_json_files(
     documents = [_load_json(path) for path in input_files]
     merged_doc = merge_tracking_documents(documents, camera_nrs=camera_nrs)
 
-    with open(output_file, "w") as f:
-        json.dump(merged_doc, f, indent=4)
+    dump_path_compact(output_file, merged_doc)
 
     logger.info(
         f"Merged {len(input_files)} JSONs into {output_file} "

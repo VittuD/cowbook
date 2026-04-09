@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
@@ -11,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from cowbook.core.runtime import assets_root
+from cowbook.io.json_utils import load_path
 
 CalibrationModelType = Literal["pinhole", "fisheye"]
 SUPPORTED_MODEL_TYPES: tuple[CalibrationModelType, ...] = ("pinhole", "fisheye")
@@ -209,8 +209,7 @@ def _parse_world(payload: dict | None) -> WorldGeometry:
 @lru_cache(maxsize=None)
 def load_calibration_bundle(calibration_file: str | None = None) -> CalibrationBundle:
     calibration_path = _normalize_path(calibration_file, default=default_calibration_file())
-    with open(calibration_path) as file:
-        payload = json.load(file)
+    payload = load_path(calibration_path)
 
     if _is_structured_bundle(payload):
         world = _parse_world(payload.get("world"))
@@ -243,8 +242,7 @@ def load_camera_correspondences(
         correspondences_file,
         default=default_correspondences_file(),
     )
-    with open(correspondences_path) as file:
-        payload = json.load(file)
+    payload = load_path(correspondences_path)
 
     correspondences: dict[int, CameraCorrespondences] = {}
     for camera_nr_str, values in payload.items():

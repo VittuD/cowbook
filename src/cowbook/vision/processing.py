@@ -1,6 +1,4 @@
 # processing.py
-
-import json
 import logging
 
 from cowbook.core.contracts import TrackingDocument
@@ -12,6 +10,7 @@ from cowbook.core.transforms import (
 from cowbook.core.transforms import (
     convert_arrays_to_lists as transform_convert_arrays_to_lists,
 )
+from cowbook.io.json_utils import load_path
 from cowbook.vision.calibration import (
     CameraModel,
     build_camera_model,
@@ -32,8 +31,7 @@ def parse_json(json_file_path):
     Returns:
         dict: Parsed JSON data as a Python dictionary.
     """
-    with open(json_file_path) as file:
-        return TrackingDocument.from_mapping(json.load(file)).to_dict()
+    return TrackingDocument.from_mapping(load_path(json_file_path)).to_dict()
 
 def extract_data(json_data):
     """
@@ -65,8 +63,7 @@ def extract_projected_centroids_from_files(json_file_paths):
     documents = []
     for json_file_path in json_file_paths:
         logger.info("Extracting projected centroids from %s", json_file_path)
-        with open(json_file_path, 'r') as file:
-            documents.append(TrackingDocument.from_mapping(json.load(file)).to_dict())
+        documents.append(TrackingDocument.from_mapping(load_path(json_file_path)).to_dict())
     return aggregate_projected_centroids(documents)
 
 def convert_arrays_to_lists(data):

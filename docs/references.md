@@ -6,6 +6,8 @@ Cowbook builds on a small set of external libraries and standard computer-vision
 
 Object detection and tracking are currently run through [Ultralytics YOLO](https://docs.ultralytics.com/), using the tracking mode documented at [docs.ultralytics.com/modes/track](https://docs.ultralytics.com/modes/track/). Cowbook wraps that runtime behavior and converts the results into its own JSON and execution contracts.
 
+Cowbook may reuse a YOLO model instance across multiple single-worker tracking calls within one group run, but only within the same tracking mode. Direct tracking and cleanup tracking are kept separate because Ultralytics stores tracker callbacks on the model object.
+
 The project-specific model weights used with this repository are not part of the `cowbook` engine package. They are project artifacts, intended for non-commercial use, and published separately by the project team.
 
 ## Geometry and Calibration

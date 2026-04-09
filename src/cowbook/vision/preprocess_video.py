@@ -1,7 +1,6 @@
 # preprocess_video.py
 import concurrent.futures as futures
 import hashlib
-import json
 import logging
 import multiprocessing as mp
 import os
@@ -11,6 +10,7 @@ from typing import Any, Dict, List, Tuple
 import cv2
 
 from cowbook.execution import JobReporter, StageProgressReporter
+from cowbook.io.json_utils import dump_path_pretty, load_path
 
 logger = logging.getLogger(__name__)
 
@@ -125,14 +125,12 @@ def _read_mask_signature(dst: str) -> Dict[str, Any] | None:
     if not os.path.exists(metadata_path):
         return None
 
-    with open(metadata_path, "r") as metadata_file:
-        return json.load(metadata_file)
+    return load_path(metadata_path)
 
 
 def _write_mask_signature(dst: str, signature: Dict[str, Any]) -> None:
     metadata_path = _metadata_path(dst)
-    with open(metadata_path, "w") as metadata_file:
-        json.dump(signature, metadata_file, indent=2, sort_keys=True)
+    dump_path_pretty(metadata_path, signature, trailing_newline=True)
 
 
 def _should_skip(

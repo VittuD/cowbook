@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
+from cowbook.io.csv_converter import json_to_csv
 from cowbook.workflows import group_processor as package_group_processor
-from cowbook.workflows.group_processor import _json_to_csv, process_video_group
+from cowbook.workflows.group_processor import process_video_group
 
 
 class _FakeAsyncResult:
@@ -39,7 +40,7 @@ def test_json_to_csv_converts_single_processed_json(fixtures_dir: Path, tmp_path
     processed_json = tmp_path / "processed.json"
     shutil.copyfile(fixtures_dir / "processed_tracking_minimal.json", processed_json)
 
-    csv_path = _json_to_csv(str(processed_json))
+    csv_path = json_to_csv(str(processed_json))
 
     assert csv_path is not None
     assert Path(csv_path).exists()

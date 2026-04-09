@@ -102,7 +102,7 @@ def test_detect_video_to_frames_collects_empty_and_nonempty_results(monkeypatch)
 
     progress_calls: list[tuple[int, int | None]] = []
 
-    monkeypatch.setattr(cleanup_module, "YOLO", lambda _path: FakeModel())
+    monkeypatch.setattr(cleanup_module, "YOLO", lambda _path, task=None: FakeModel())
     monkeypatch.setattr(cleanup_module, "_read_video_meta", lambda _path: (6.0, 64, 48, 2))
 
     frames = cleanup_module.detect_video_to_frames(

@@ -33,10 +33,7 @@ def load_pipeline_config(
     Raises:
         ValueError: If the config cannot be loaded or validated.
     """
-    config = load_config_file(config_path, overrides=overrides)
-    if not config:
-        raise ValueError(f"Failed to load pipeline config from {config_path}")
-    return PipelineConfig.from_mapping(config)
+    return PipelineConfig.from_mapping(load_config_file(config_path, overrides=overrides))
 
 
 def load_pipeline_config_object(
@@ -45,8 +42,7 @@ def load_pipeline_config_object(
 ) -> PipelineConfig:
     """Load, normalize, and validate a pipeline config from an in-memory object."""
 
-    config_mapping = config.to_dict() if isinstance(config, PipelineConfig) else dict(config)
-    normalized = normalize_config_mapping(config_mapping, overrides=overrides)
+    normalized = normalize_config_mapping(config, overrides=overrides)
     return PipelineConfig.from_mapping(normalized)
 
 

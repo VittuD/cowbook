@@ -36,12 +36,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import logging
 import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from cowbook.core.contracts import TrackingDocument
+from cowbook.io.json_utils import load_path
 from cowbook.core.transforms import (
     bbox_wh_area,
     centroid_from_xyxy,
@@ -55,8 +55,7 @@ logger = logging.getLogger(__name__)
 # --------- helpers ---------
 
 def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return TrackingDocument.from_mapping(json.load(f)).to_dict()
+    return TrackingDocument.from_mapping(load_path(path)).to_dict()
 
 
 def _centroid_from_xyxy(b: List[float]) -> Tuple[float, float]:
@@ -119,6 +118,21 @@ def _write_csv(
         writer.writeheader()
         for r in rows:
             writer.writerow(r)
+
+
+def json_to_csv(json_path: str) -> str | None:
+    """Convert one tracking JSON file to a sibling CSV file."""
+
+    csv_path = os.path.splitext(json_path)[0] + ".csv"
+
+    try:
+        doc = _load_json(json_path)
+        _write_csv(_iter_rows_from_json(doc, source_tag=None), csv_path, include_source=False)
+        logger.info("Wrote CSV: %s", csv_path)
+        return csv_path
+    except Exception as e:
+        logger.exception("Failed converting %s to CSV: %s", json_path, e)
+        return None
 
 
 # --------- CLI ---------
