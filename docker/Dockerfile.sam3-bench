@@ -15,6 +15,7 @@ COPY src /app/src
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install git+https://github.com/ultralytics/CLIP.git && \
+    python -m pip install timm && \
     python -m pip install -e . && \
     groupadd --gid "${APP_GID}" cowbook && \
     useradd --uid "${APP_UID}" --gid "${APP_GID}" --create-home --shell /bin/bash cowbook && \
