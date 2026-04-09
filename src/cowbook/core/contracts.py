@@ -104,6 +104,7 @@ class TrackingCleanupConfig:
     roi: list[list[float]] | None = None
     two_pass_prune_short_tracks: bool = False
     min_track_length: int = 30
+    short_track_gap_tolerance: int = 6
     postprocess_smoothing: bool = False
     smoothing_alpha: float = 0.65
     gap_fill_max_frames: int = 3
@@ -155,6 +156,7 @@ class TrackingCleanupConfig:
             roi=roi,
             two_pass_prune_short_tracks=bool(data.get("two_pass_prune_short_tracks", False)),
             min_track_length=int(data.get("min_track_length", 30)),
+            short_track_gap_tolerance=int(data.get("short_track_gap_tolerance", 6)),
             postprocess_smoothing=bool(data.get("postprocess_smoothing", False)),
             smoothing_alpha=float(data.get("smoothing_alpha", 0.65)),
             gap_fill_max_frames=int(data.get("gap_fill_max_frames", 3)),
@@ -187,6 +189,7 @@ class TrackingCleanupConfig:
             "roi": self.roi,
             "two_pass_prune_short_tracks": self.two_pass_prune_short_tracks,
             "min_track_length": self.min_track_length,
+            "short_track_gap_tolerance": self.short_track_gap_tolerance,
             "postprocess_smoothing": self.postprocess_smoothing,
             "smoothing_alpha": self.smoothing_alpha,
             "gap_fill_max_frames": self.gap_fill_max_frames,

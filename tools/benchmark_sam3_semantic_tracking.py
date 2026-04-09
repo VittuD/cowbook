@@ -103,6 +103,7 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
         edge_margin_px=16,
         two_pass_prune_short_tracks=False,
         min_track_length=12,
+        short_track_gap_tolerance=6,
         postprocess_smoothing=False,
     )
 
@@ -555,7 +556,11 @@ def _apply_cowbook_box_cleanup(
     prefiltered = [_subset_frame(frame, _select_cleanup_keep_indices(frame, cleanup_config)) for frame in frames]
     prefiltered_detection_count = int(sum(frame.xyxy.shape[0] for frame in prefiltered))
     document = _build_tracking_document(prefiltered)
-    short_track_ids = compute_short_track_ids(document, cleanup_config.min_track_length)
+    short_track_ids = compute_short_track_ids(
+        document,
+        cleanup_config.min_track_length,
+        gap_tolerance=cleanup_config.short_track_gap_tolerance,
+    )
 
     cleaned_frames: list[Sam3FrameArtifacts] = []
     for frame in prefiltered:

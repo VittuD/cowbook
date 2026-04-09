@@ -223,7 +223,11 @@ def _track_video_with_cleanup(
             event_sink=progress_event_sink,
         )
         prune_progress.stage_started()
-        short_track_ids = compute_short_track_ids(tracked, cleanup_config.min_track_length)
+        short_track_ids = compute_short_track_ids(
+            tracked,
+            cleanup_config.min_track_length,
+            gap_tolerance=cleanup_config.short_track_gap_tolerance,
+        )
         pruned_frames = prune_detection_frames_by_track_ids(preprocessed_frames, tracked, short_track_ids)
         prune_progress.stage_completed()
         pass2_progress = TrackingProgressReporter(

@@ -37,14 +37,38 @@ def _cxcywh_to_xyxy(values: np.ndarray) -> np.ndarray:
     return np.array([cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0], dtype=np.float32)
 
 
-def compute_short_track_ids(document: TrackingDocument, min_track_length: int) -> set[int]:
-    counts: dict[int, int] = {}
+def _max_gap_tolerant_streak(frame_ids: list[int], gap_tolerance: int) -> int:
+    if not frame_ids:
+        return 0
+    best = 1
+    current = 1
+    for previous, current_frame in zip(frame_ids, frame_ids[1:]):
+        gap = current_frame - previous - 1
+        if gap <= gap_tolerance:
+            current += 1
+        else:
+            best = max(best, current)
+            current = 1
+    return max(best, current)
+
+
+def compute_short_track_ids(
+    document: TrackingDocument,
+    min_track_length: int,
+    *,
+    gap_tolerance: int = 6,
+) -> set[int]:
+    frame_ids_by_track: dict[int, set[int]] = {}
     for frame in document.frames:
         for label in frame.labels:
             if label.id is None or label.det_idx is None or label.det_idx < 0:
                 continue
-            counts[label.id] = counts.get(label.id, 0) + 1
-    return {track_id for track_id, count in counts.items() if count < min_track_length}
+            frame_ids_by_track.setdefault(label.id, set()).add(frame.frame_id)
+    return {
+        track_id
+        for track_id, frame_ids in frame_ids_by_track.items()
+        if _max_gap_tolerant_streak(sorted(frame_ids), gap_tolerance) < min_track_length
+    }
 
 
 def prune_detection_frames_by_track_ids(

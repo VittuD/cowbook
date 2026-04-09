@@ -71,6 +71,13 @@ def test_compute_short_track_ids_and_prune_detection_frames():
             conf=np.asarray([0.9], dtype=np.float32),
             cls=np.asarray([0], dtype=np.int32),
         ),
+        DetectionFrame(
+            frame_idx=3,
+            shape=(48, 64),
+            xyxy=np.asarray([[3, 3, 12, 12]], dtype=np.float32),
+            conf=np.asarray([0.9], dtype=np.float32),
+            cls=np.asarray([0], dtype=np.int32),
+        ),
     ]
     document = TrackingDocument(
         frames=[
@@ -87,15 +94,46 @@ def test_compute_short_track_ids_and_prune_detection_frames():
                 detections=Detections(xyxy=[[2, 2, 11, 11]]),
                 labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
             ),
+            TrackingFrame(
+                frame_id=3,
+                detections=Detections(xyxy=[[3, 3, 12, 12]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
         ]
     )
 
-    short_ids = compute_short_track_ids(document, min_track_length=2)
+    short_ids = compute_short_track_ids(document, min_track_length=3, gap_tolerance=1)
     pruned = prune_detection_frames_by_track_ids(detection_frames, document, short_ids)
 
     assert short_ids == {200}
     assert pruned[0].xyxy.tolist() == [[1.0, 1.0, 10.0, 10.0]]
     assert pruned[1].xyxy.tolist() == [[2.0, 2.0, 11.0, 11.0]]
+    assert pruned[2].xyxy.tolist() == [[3.0, 3.0, 12.0, 12.0]]
+
+
+def test_compute_short_track_ids_uses_gap_tolerant_streaks():
+    document = TrackingDocument(
+        frames=[
+            TrackingFrame(
+                frame_id=0,
+                detections=Detections(xyxy=[[1, 1, 10, 10]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+            TrackingFrame(
+                frame_id=2,
+                detections=Detections(xyxy=[[2, 2, 11, 11]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+            TrackingFrame(
+                frame_id=4,
+                detections=Detections(xyxy=[[4, 4, 13, 13]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+        ]
+    )
+
+    assert compute_short_track_ids(document, min_track_length=3, gap_tolerance=1) == set()
+    assert compute_short_track_ids(document, min_track_length=3, gap_tolerance=0) == {100}
 
 
 def test_postprocess_tracking_document_gap_fills_and_marks_synthetic_frames():
