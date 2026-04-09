@@ -31,6 +31,7 @@ When `tracking_cleanup.enabled` is true, the tracking stage expands into:
 3. cleanup tracking pass 1
 4. optional short-track pruning by gap-tolerant consecutive streak plus optional total-observation threshold
 5. optional cleanup tracking pass 2
-6. optional output smoothing
+6. optional temporal postprocessing
+   temporal postprocessing can run gap fill, smoothing, or both depending on config
 
 `min_track_length` is evaluated against the longest surviving streak for each track, not against total lifetime observations. `short_track_gap_tolerance` controls how many missing frames are tolerated inside that streak; the default is `6`. `min_track_total_observations`, when set, adds a second requirement on overall observation count.

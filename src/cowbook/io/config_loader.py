@@ -67,6 +67,7 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         "min_track_length": 30,
         "min_track_total_observations": None,
         "short_track_gap_tolerance": 6,
+        "postprocess_gap_fill": False,
         "postprocess_smoothing": False,
         "smoothing_alpha": 0.65,
         "gap_fill_max_frames": 3,
@@ -79,6 +80,7 @@ def _normalize_tracking_cleanup(config: dict) -> None:
     cleanup["enabled"] = bool(cleanup["enabled"])
     cleanup["drop_edge_boxes"] = bool(cleanup["drop_edge_boxes"])
     cleanup["two_pass_prune_short_tracks"] = bool(cleanup["two_pass_prune_short_tracks"])
+    cleanup["postprocess_gap_fill"] = bool(cleanup["postprocess_gap_fill"])
     cleanup["postprocess_smoothing"] = bool(cleanup["postprocess_smoothing"])
 
     for key in (

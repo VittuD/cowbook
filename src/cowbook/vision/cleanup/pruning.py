@@ -52,8 +52,17 @@ def drop_pruned_tracks_from_detection_frames(
     document: TrackingDocument,
     prunable_track_ids: set[int],
 ) -> list[DetectionFrame]:
+    if len(detection_frames) != len(document.frames):
+        raise ValueError(
+            "Detection-frame pruning requires detection_frames and document.frames to have the same length."
+        )
+
     pruned_frames: list[DetectionFrame] = []
-    for det_frame, track_frame in zip(detection_frames, document.frames):
+    for det_frame, track_frame in zip(detection_frames, document.frames, strict=True):
+        if int(det_frame.frame_idx) != int(track_frame.frame_id):
+            raise ValueError(
+                "Detection-frame pruning requires aligned frame indices between detection_frames and document.frames."
+            )
         drop: set[int] = set()
         for label in track_frame.labels:
             if label.id is None or label.id not in prunable_track_ids:

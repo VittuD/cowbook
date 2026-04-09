@@ -59,6 +59,7 @@ def test_normalize_config_mapping_applies_defaults_and_overrides():
     assert config["output_root"] == "var/runs/normalized"
     assert config["video_groups"][0][0]["camera_nr"] == 1
     assert config["tracking_cleanup"]["min_track_total_observations"] is None
+    assert config["tracking_cleanup"]["postprocess_gap_fill"] is False
 
 
 def test_load_config_file_applies_explicit_overrides(tmp_path):
@@ -193,6 +194,7 @@ def test_load_config_file_normalizes_tracking_cleanup_block(tmp_path):
                     "enabled": True,
                     "roi": [[0, 0], [10, 0], [10, 10]],
                     "min_track_length": 5,
+                    "postprocess_gap_fill": True,
                 },
             }
         )
@@ -203,6 +205,7 @@ def test_load_config_file_normalizes_tracking_cleanup_block(tmp_path):
     assert config["tracking_cleanup"]["enabled"] is True
     assert config["tracking_cleanup"]["roi"] == [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
     assert config["tracking_cleanup"]["min_track_length"] == 5
+    assert config["tracking_cleanup"]["postprocess_gap_fill"] is True
 
 
 def test_load_config_file_rejects_invalid_tracking_cleanup_nms_mode(tmp_path):

@@ -106,6 +106,7 @@ class TrackingCleanupConfig:
     min_track_length: int = 30
     min_track_total_observations: int | None = None
     short_track_gap_tolerance: int = 6
+    postprocess_gap_fill: bool = False
     postprocess_smoothing: bool = False
     smoothing_alpha: float = 0.65
     gap_fill_max_frames: int = 3
@@ -163,6 +164,7 @@ class TrackingCleanupConfig:
                 else None
             ),
             short_track_gap_tolerance=int(data.get("short_track_gap_tolerance", 6)),
+            postprocess_gap_fill=bool(data.get("postprocess_gap_fill", False)),
             postprocess_smoothing=bool(data.get("postprocess_smoothing", False)),
             smoothing_alpha=float(data.get("smoothing_alpha", 0.65)),
             gap_fill_max_frames=int(data.get("gap_fill_max_frames", 3)),
@@ -197,6 +199,7 @@ class TrackingCleanupConfig:
             "min_track_length": self.min_track_length,
             "min_track_total_observations": self.min_track_total_observations,
             "short_track_gap_tolerance": self.short_track_gap_tolerance,
+            "postprocess_gap_fill": self.postprocess_gap_fill,
             "postprocess_smoothing": self.postprocess_smoothing,
             "smoothing_alpha": self.smoothing_alpha,
             "gap_fill_max_frames": self.gap_fill_max_frames,

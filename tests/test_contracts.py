@@ -96,6 +96,7 @@ def test_tracking_cleanup_config_round_trip_preserves_nested_shape():
             "roi": [[1, 2], [3, 4], [5, 6]],
             "two_pass_prune_short_tracks": True,
             "min_track_total_observations": 12,
+            "postprocess_gap_fill": True,
         }
     )
 
@@ -105,6 +106,7 @@ def test_tracking_cleanup_config_round_trip_preserves_nested_shape():
     assert data["roi"] == [[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]
     assert data["two_pass_prune_short_tracks"] is True
     assert data["min_track_total_observations"] == 12
+    assert data["postprocess_gap_fill"] is True
 
 
 def test_video_group_item_normalizes_camera_number():

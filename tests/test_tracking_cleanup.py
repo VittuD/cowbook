@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 
 from cowbook.core.contracts import (
     Detections,
@@ -111,6 +112,46 @@ def test_find_prunable_track_ids_and_drop_pruned_track_detections():
     assert pruned[2].xyxy.tolist() == [[3.0, 3.0, 12.0, 12.0]]
 
 
+def test_drop_pruned_tracks_requires_aligned_frame_lengths():
+    detection_frames = [
+        DetectionFrame(
+            frame_idx=0,
+            shape=(48, 64),
+            xyxy=np.asarray([[1, 1, 10, 10]], dtype=np.float32),
+            conf=np.asarray([0.9], dtype=np.float32),
+            cls=np.asarray([0], dtype=np.int32),
+        )
+    ]
+    document = TrackingDocument(frames=[])
+
+    with pytest.raises(ValueError, match="same length"):
+        drop_pruned_tracks_from_detection_frames(detection_frames, document, {1})
+
+
+def test_drop_pruned_tracks_requires_aligned_frame_ids():
+    detection_frames = [
+        DetectionFrame(
+            frame_idx=0,
+            shape=(48, 64),
+            xyxy=np.asarray([[1, 1, 10, 10]], dtype=np.float32),
+            conf=np.asarray([0.9], dtype=np.float32),
+            cls=np.asarray([0], dtype=np.int32),
+        )
+    ]
+    document = TrackingDocument(
+        frames=[
+            TrackingFrame(
+                frame_id=1,
+                detections=Detections(xyxy=[[1, 1, 10, 10]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="aligned frame indices"):
+        drop_pruned_tracks_from_detection_frames(detection_frames, document, {100})
+
+
 def test_find_prunable_track_ids_uses_gap_tolerant_streaks():
     document = TrackingDocument(
         frames=[
@@ -175,6 +216,7 @@ def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frame
     cleanup = TrackingCleanupConfig.from_mapping(
         {
             "enabled": True,
+            "postprocess_gap_fill": True,
             "postprocess_smoothing": True,
             "gap_fill_max_frames": 1,
             "smoothing_alpha": 0.65,
@@ -205,6 +247,37 @@ def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frame
 
     final_label = postprocessed.frames[2].labels[0]
     assert final_label.src in {"tracker", "smooth"}
+
+
+def test_apply_temporal_track_postprocessing_can_gap_fill_without_smoothing():
+    cleanup = TrackingCleanupConfig.from_mapping(
+        {
+            "enabled": True,
+            "postprocess_gap_fill": True,
+            "postprocess_smoothing": False,
+            "gap_fill_max_frames": 1,
+        }
+    )
+    document = TrackingDocument(
+        frames=[
+            TrackingFrame(
+                frame_id=0,
+                detections=Detections(xyxy=[[10, 10, 20, 20]]),
+                labels=[TrackingLabel(class_id=0, id=7, det_idx=0, real=1, src="tracker")],
+            ),
+            TrackingFrame(frame_id=1, detections=Detections(xyxy=[]), labels=[]),
+            TrackingFrame(
+                frame_id=2,
+                detections=Detections(xyxy=[[14, 14, 24, 24]]),
+                labels=[TrackingLabel(class_id=0, id=7, det_idx=0, real=1, src="tracker")],
+            ),
+        ]
+    )
+
+    postprocessed = apply_temporal_track_postprocessing(document, cleanup)
+
+    assert len(postprocessed.frames[1].detections.xyxy) == 1
+    assert postprocessed.frames[2].labels[0].src == "tracker"
 
 
 def test_track_video_with_yolo_uses_cleanup_path_when_enabled(tmp_path, monkeypatch):

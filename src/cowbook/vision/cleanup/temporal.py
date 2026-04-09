@@ -57,6 +57,10 @@ def _build_track_observations(document: TrackingDocument) -> dict[int, list[_Tra
     return observations
 
 
+def _build_frame_index(document: TrackingDocument) -> dict[int, object]:
+    return {frame.frame_id: frame for frame in document.frames}
+
+
 def _relative_change(a: float, b: float) -> float:
     return float(abs(b - a) / max(1e-9, abs(a)))
 
@@ -97,9 +101,11 @@ def _interpolate_boxes(box_a: np.ndarray, box_b: np.ndarray, t: float) -> np.nda
     return _cxcywh_to_xyxy((1.0 - t) * vec_a + t * vec_b)
 
 
-def _apply_gap_fill(document: TrackingDocument, cleanup_config: TrackingCleanupConfig) -> None:
-    observations = _build_track_observations(document)
-    frame_index = {frame.frame_id: frame for frame in document.frames}
+def _apply_gap_fill(
+    observations: dict[int, list[_TrackObservation]],
+    frame_index: dict[int, object],
+    cleanup_config: TrackingCleanupConfig,
+) -> None:
     for track_id, obs_list in observations.items():
         if len(obs_list) < 2:
             continue
@@ -128,9 +134,11 @@ def _apply_gap_fill(document: TrackingDocument, cleanup_config: TrackingCleanupC
                 )
 
 
-def _apply_ema_smoothing(document: TrackingDocument, cleanup_config: TrackingCleanupConfig) -> None:
-    observations = _build_track_observations(document)
-    frame_index = {frame.frame_id: frame for frame in document.frames}
+def _apply_ema_smoothing(
+    observations: dict[int, list[_TrackObservation]],
+    frame_index: dict[int, object],
+    cleanup_config: TrackingCleanupConfig,
+) -> None:
     alpha = cleanup_config.smoothing_alpha
     for obs_list in observations.values():
         if len(obs_list) < 2:
@@ -155,6 +163,13 @@ def apply_temporal_track_postprocessing(
     cleanup_config: TrackingCleanupConfig,
 ) -> TrackingDocument:
     postprocessed = TrackingDocument.from_mapping(document.to_dict())
-    _apply_gap_fill(postprocessed, cleanup_config)
-    _apply_ema_smoothing(postprocessed, cleanup_config)
+    observations = _build_track_observations(postprocessed)
+    frame_index = _build_frame_index(postprocessed)
+    if cleanup_config.postprocess_gap_fill:
+        _apply_gap_fill(observations, frame_index, cleanup_config)
+    if cleanup_config.postprocess_smoothing:
+        if cleanup_config.postprocess_gap_fill:
+            observations = _build_track_observations(postprocessed)
+            frame_index = _build_frame_index(postprocessed)
+        _apply_ema_smoothing(observations, frame_index, cleanup_config)
     return postprocessed

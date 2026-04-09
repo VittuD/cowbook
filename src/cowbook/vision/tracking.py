@@ -256,7 +256,7 @@ def _track_video_with_cleanup(
         )
         pass2_progress.stage_completed()
 
-    if cleanup_config.postprocess_smoothing:
+    if cleanup_config.postprocess_gap_fill or cleanup_config.postprocess_smoothing:
         postprocess_progress = TrackingProgressReporter(
             tracking_mode="cleanup",
             stage_name="postprocess",

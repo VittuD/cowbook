@@ -136,6 +136,50 @@ def test_cleanup_tracking_emits_shared_stage_events(tmp_path, monkeypatch):
     assert any(payload["stage_name"] == "cleanup_pass2" for payload in progress_events)
 
 
+def test_cleanup_tracking_emits_postprocess_stage_for_gap_fill_only(tmp_path, monkeypatch):
+    output_json = tmp_path / "tracking.json"
+    events: list[tuple[str, dict]] = []
+
+    fake_frames = [SimpleNamespace(frame_idx=0), SimpleNamespace(frame_idx=1)]
+    fake_doc = tracking_module.TrackingDocument(frames=[])
+
+    monkeypatch.setattr(
+        tracking_module,
+        "detect_video_to_frames",
+        lambda *_args, progress_reporter=None, **_kwargs: fake_frames,
+    )
+    monkeypatch.setattr(
+        tracking_module,
+        "preprocess_detection_frames",
+        lambda frames, *_args, **_kwargs: frames,
+    )
+    monkeypatch.setattr(tracking_module, "track_from_detection_frames", lambda *_args, **_kwargs: fake_doc)
+    monkeypatch.setattr(
+        tracking_module,
+        "apply_temporal_track_postprocessing",
+        lambda doc, *_args, **_kwargs: doc,
+    )
+
+    def sink(event_type: str, payload: dict) -> None:
+        events.append((event_type, payload))
+
+    tracking_module.track_video_with_yolo(
+        "video.mp4",
+        str(output_json),
+        "model.pt",
+        tracking_cleanup={
+            "enabled": True,
+            "postprocess_gap_fill": True,
+            "postprocess_smoothing": False,
+        },
+        progress_event_sink=sink,
+        camera_nr=4,
+    )
+
+    stage_names = [payload["stage_name"] for _event_type, payload in events]
+    assert "postprocess" in stage_names
+
+
 def test_direct_tracking_uses_supplied_model_without_loading_again(tmp_path, monkeypatch):
     output_json = tmp_path / "tracking.json"
 
