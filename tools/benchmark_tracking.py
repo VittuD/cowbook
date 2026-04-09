@@ -60,7 +60,7 @@ def _run_sequential_shared_model(
     model_path: str,
     tracker_config: str,
 ) -> BenchmarkModeResult:
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     per_source_frame_count: dict[str, int] = {}
     per_source_elapsed_s: dict[str, float] = {}
     start = time.perf_counter()
@@ -84,7 +84,7 @@ def _run_multistream_shared_model(
     model_path: str,
     tracker_config: str,
 ) -> BenchmarkModeResult:
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     sanitized_to_source = {clean_str(path).replace(os.sep, "_"): path for path in videos}
     per_source_frame_count = {path: 0 for path in videos}
     with tempfile.TemporaryDirectory(prefix="cowbook_streams_") as tmpdir:
@@ -120,7 +120,7 @@ def _parallel_worker(video_path: str, model_path: str, tracker_config: str) -> t
     except Exception:
         pass
 
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     frame_count = 0
     start = time.perf_counter()
     for _ in model.track(source=video_path, stream=True, **_model_track_kwargs(tracker_config)):

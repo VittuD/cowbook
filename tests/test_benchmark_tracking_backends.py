@@ -61,8 +61,9 @@ def test_export_model_artifact_reuses_existing_file(tmp_path):
 
 def test_run_sequential_shared_model_collects_frame_counts(monkeypatch):
     class FakeModel:
-        def __init__(self, path: str):
+        def __init__(self, path: str, task=None):
             self.path = path
+            self.task = task
 
     counts = {
         "a.mp4": (12, 1.25),

@@ -191,6 +191,25 @@ def test_direct_tracking_uses_supplied_model_without_loading_again(tmp_path, mon
     assert len(saved["frames"]) == 1
 
 
+def test_load_yolo_model_explicitly_sets_detect_task(monkeypatch):
+    recorded = {}
+
+    class FakeModel:
+        pass
+
+    def fake_yolo(model_path, task=None):
+        recorded["model_path"] = model_path
+        recorded["task"] = task
+        return FakeModel()
+
+    monkeypatch.setattr(tracking_module, "YOLO", fake_yolo)
+
+    model = tracking_module.load_yolo_model("model.engine")
+
+    assert isinstance(model, FakeModel)
+    assert recorded == {"model_path": "model.engine", "task": "detect"}
+
+
 def test_stage_progress_reporter_uses_event_sink_and_unknown_total_milestones(capsys):
     events = []
     reporter = StageProgressReporter(

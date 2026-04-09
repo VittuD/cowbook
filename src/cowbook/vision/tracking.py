@@ -321,4 +321,4 @@ def load_yolo_model(model_path):
     Returns:
         YOLO: Loaded YOLO model instance.
     """
-    return YOLO(model_path)
+    return YOLO(model_path, task="detect")

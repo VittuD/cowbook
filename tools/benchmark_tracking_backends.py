@@ -102,7 +102,7 @@ def _export_model_artifact(
         f"[export] exporting {backend} artifact from {source_model_path} -> {target_path}",
     )
     start = time.perf_counter()
-    model = YOLO(source_model_path)
+    model = YOLO(source_model_path, task="detect")
     try:
         export_kwargs: dict[str, Any] = {
             "format": backend,
@@ -146,7 +146,7 @@ def _run_sequential_shared_model(
     model_path: str,
     tracker_config: str,
 ) -> BenchmarkModeResult:
-    model = YOLO(model_path)
+    model = YOLO(model_path, task="detect")
     per_source_frame_count: dict[str, int] = {}
     per_source_elapsed_s: dict[str, float] = {}
     start = time.perf_counter()

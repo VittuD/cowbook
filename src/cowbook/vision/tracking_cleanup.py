@@ -69,7 +69,7 @@ def detect_video_to_frames(
     progress_reporter: TrackingProgressReporter | None = None,
 ) -> list[DetectionFrame]:
     owns_model = model is None
-    model = model or YOLO(model_path)
+    model = model or YOLO(model_path, task="detect")
     _, width, height, frame_count = _read_video_meta(video_path)
     results = model.predict(
         source=video_path,
