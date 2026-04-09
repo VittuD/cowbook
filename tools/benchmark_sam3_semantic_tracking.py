@@ -73,6 +73,7 @@ class Sam3CleanupStats:
     prefiltered_detection_count: int
     cleaned_detection_count: int
     removed_by_prefilter: int
+    removed_by_mask_fill: int
     removed_by_short_tracks: int
     short_track_count: int
 
@@ -101,6 +102,7 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
         hybrid_footpoint_dist_min_px=30.0,
         min_area_ratio=0.0018,
         max_area_ratio=0.18,
+        min_mask_fill_ratio=0.18,
         drop_edge_boxes=True,
         edge_margin_px=20,
         two_pass_prune_short_tracks=False,
@@ -378,12 +380,14 @@ def _draw_processed_frames(
 def _select_cleanup_keep_indices(
     frame: Sam3FrameArtifacts,
     cleanup_config: TrackingCleanupConfig,
-) -> np.ndarray:
+) -> tuple[np.ndarray, int]:
     xyxy = clip_boxes(frame.xyxy, frame.orig_img.shape[1], frame.orig_img.shape[0])
     conf = frame.conf.copy()
+    masks = frame.masks.copy()
+    removed_by_mask_fill = 0
 
     if xyxy.shape[0] == 0:
-        return np.zeros((0,), dtype=np.int64)
+        return np.zeros((0,), dtype=np.int64), 0
 
     keep = np.arange(xyxy.shape[0], dtype=np.int64)
     widths = np.maximum(0.0, xyxy[:, 2] - xyxy[:, 0])
@@ -395,6 +399,8 @@ def _select_cleanup_keep_indices(
     conf = conf[valid]
     widths = widths[valid]
     heights = heights[valid]
+    if masks.shape[0]:
+        masks = masks[valid]
 
     mask = conf >= float(cleanup_config.conf_threshold)
     keep = keep[mask]
@@ -402,9 +408,11 @@ def _select_cleanup_keep_indices(
     conf = conf[mask]
     widths = widths[mask]
     heights = heights[mask]
+    if masks.shape[0]:
+        masks = masks[mask]
 
     if conf.size == 0:
-        return np.zeros((0,), dtype=np.int64)
+        return np.zeros((0,), dtype=np.int64), removed_by_mask_fill
 
     if cleanup_config.roi is not None:
         centers_x = (xyxy[:, 0] + xyxy[:, 2]) * 0.5
@@ -421,9 +429,11 @@ def _select_cleanup_keep_indices(
         conf = conf[roi_keep]
         widths = widths[roi_keep]
         heights = heights[roi_keep]
+        if masks.shape[0]:
+            masks = masks[roi_keep]
 
     if conf.size == 0:
-        return np.zeros((0,), dtype=np.int64)
+        return np.zeros((0,), dtype=np.int64), removed_by_mask_fill
 
     if cleanup_config.drop_edge_boxes:
         margin = int(cleanup_config.edge_margin_px)
@@ -438,9 +448,11 @@ def _select_cleanup_keep_indices(
         conf = conf[edge_keep]
         widths = widths[edge_keep]
         heights = heights[edge_keep]
+        if masks.shape[0]:
+            masks = masks[edge_keep]
 
     if conf.size == 0:
-        return np.zeros((0,), dtype=np.int64)
+        return np.zeros((0,), dtype=np.int64), removed_by_mask_fill
 
     area = widths * heights
     frame_area = max(1.0, float(frame.orig_img.shape[0] * frame.orig_img.shape[1]))
@@ -457,6 +469,8 @@ def _select_cleanup_keep_indices(
             area_ratio[area_keep],
             aspect_ratio[area_keep],
         )
+        if masks.shape[0]:
+            masks = masks[area_keep]
     if cleanup_config.max_area_px is not None and conf.size:
         area_keep = area <= float(cleanup_config.max_area_px)
         keep, xyxy, conf, area, area_ratio, aspect_ratio = (
@@ -467,6 +481,8 @@ def _select_cleanup_keep_indices(
             area_ratio[area_keep],
             aspect_ratio[area_keep],
         )
+        if masks.shape[0]:
+            masks = masks[area_keep]
     if cleanup_config.min_area_ratio is not None and conf.size:
         area_keep = area_ratio >= float(cleanup_config.min_area_ratio)
         keep, xyxy, conf, area, area_ratio, aspect_ratio = (
@@ -477,6 +493,8 @@ def _select_cleanup_keep_indices(
             area_ratio[area_keep],
             aspect_ratio[area_keep],
         )
+        if masks.shape[0]:
+            masks = masks[area_keep]
     if cleanup_config.max_area_ratio is not None and conf.size:
         area_keep = area_ratio <= float(cleanup_config.max_area_ratio)
         keep, xyxy, conf, area, area_ratio, aspect_ratio = (
@@ -486,6 +504,22 @@ def _select_cleanup_keep_indices(
             area[area_keep],
             area_ratio[area_keep],
             aspect_ratio[area_keep],
+        )
+        if masks.shape[0]:
+            masks = masks[area_keep]
+    if cleanup_config.min_mask_fill_ratio is not None and conf.size and masks.shape[0] == xyxy.shape[0]:
+        mask_area = np.count_nonzero(masks, axis=(1, 2)).astype(np.float32)
+        mask_fill_ratio = mask_area / np.maximum(area, 1.0)
+        fill_keep = mask_fill_ratio >= float(cleanup_config.min_mask_fill_ratio)
+        removed_by_mask_fill = int(np.count_nonzero(~fill_keep))
+        keep, xyxy, conf, area, area_ratio, aspect_ratio, masks = (
+            keep[fill_keep],
+            xyxy[fill_keep],
+            conf[fill_keep],
+            area[fill_keep],
+            area_ratio[fill_keep],
+            aspect_ratio[fill_keep],
+            masks[fill_keep],
         )
     if cleanup_config.min_aspect_ratio is not None and conf.size:
         aspect_keep = aspect_ratio >= float(cleanup_config.min_aspect_ratio)
@@ -497,14 +531,18 @@ def _select_cleanup_keep_indices(
             area_ratio[aspect_keep],
             aspect_ratio[aspect_keep],
         )
+        if masks.shape[0]:
+            masks = masks[aspect_keep]
     if cleanup_config.max_aspect_ratio is not None and conf.size:
         aspect_keep = aspect_ratio <= float(cleanup_config.max_aspect_ratio)
         keep = keep[aspect_keep]
         xyxy = xyxy[aspect_keep]
         conf = conf[aspect_keep]
+        if masks.shape[0]:
+            masks = masks[aspect_keep]
 
     if conf.size == 0:
-        return np.zeros((0,), dtype=np.int64)
+        return np.zeros((0,), dtype=np.int64), removed_by_mask_fill
 
     if cleanup_config.nms_mode == "iou_nms":
         nms_keep = iou_nms_xyxy(xyxy, conf, cleanup_config.nms_iou)
@@ -525,7 +563,7 @@ def _select_cleanup_keep_indices(
             dist_k=cleanup_config.hybrid_footpoint_dist_k,
             dist_min_px=cleanup_config.hybrid_footpoint_dist_min_px,
         )
-    return keep[nms_keep]
+    return keep[nms_keep], removed_by_mask_fill
 
 
 def _subset_frame(frame: Sam3FrameArtifacts, keep_indices: np.ndarray) -> Sam3FrameArtifacts:
@@ -581,7 +619,12 @@ def _apply_cowbook_box_cleanup(
     cleanup_config: TrackingCleanupConfig,
 ) -> tuple[list[Sam3FrameArtifacts], set[int], Sam3CleanupStats]:
     raw_detection_count = int(sum(frame.xyxy.shape[0] for frame in frames))
-    prefiltered = [_subset_frame(frame, _select_cleanup_keep_indices(frame, cleanup_config)) for frame in frames]
+    prefiltered: list[Sam3FrameArtifacts] = []
+    removed_by_mask_fill = 0
+    for frame in frames:
+        keep_indices, frame_removed_by_mask_fill = _select_cleanup_keep_indices(frame, cleanup_config)
+        prefiltered.append(_subset_frame(frame, keep_indices))
+        removed_by_mask_fill += frame_removed_by_mask_fill
     prefiltered_detection_count = int(sum(frame.xyxy.shape[0] for frame in prefiltered))
     document = _build_tracking_document(prefiltered)
     short_track_ids = find_prunable_track_ids(
@@ -607,6 +650,7 @@ def _apply_cowbook_box_cleanup(
         prefiltered_detection_count=prefiltered_detection_count,
         cleaned_detection_count=cleaned_detection_count,
         removed_by_prefilter=max(0, raw_detection_count - prefiltered_detection_count),
+        removed_by_mask_fill=removed_by_mask_fill,
         removed_by_short_tracks=max(0, prefiltered_detection_count - cleaned_detection_count),
         short_track_count=len(short_track_ids),
     )
@@ -761,6 +805,7 @@ def _run_semantic_tracking_for_video(
             f"prefiltered={cleanup_stats.prefiltered_detection_count} "
             f"cleaned={cleanup_stats.cleaned_detection_count} "
             f"removed_prefilter={cleanup_stats.removed_by_prefilter} "
+            f"removed_mask_fill={cleanup_stats.removed_by_mask_fill} "
             f"removed_short_tracks={cleanup_stats.removed_by_short_tracks} "
             f"short_tracks_removed={cleanup_stats.short_track_count} "
             f"elapsed_s={cleanup_elapsed_s:.2f}"

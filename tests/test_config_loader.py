@@ -60,6 +60,7 @@ def test_normalize_config_mapping_applies_defaults_and_overrides():
     assert config["video_groups"][0][0]["camera_nr"] == 1
     assert config["tracking_cleanup"]["min_track_total_observations"] is None
     assert config["tracking_cleanup"]["min_area_ratio"] is None
+    assert config["tracking_cleanup"]["min_mask_fill_ratio"] is None
     assert config["tracking_cleanup"]["postprocess_gap_fill"] is False
 
 
@@ -196,6 +197,7 @@ def test_load_config_file_normalizes_tracking_cleanup_block(tmp_path):
                     "roi": [[0, 0], [10, 0], [10, 10]],
                     "min_track_length": 5,
                     "min_area_ratio": 0.02,
+                    "min_mask_fill_ratio": 0.15,
                     "postprocess_gap_fill": True,
                 },
             }
@@ -208,6 +210,7 @@ def test_load_config_file_normalizes_tracking_cleanup_block(tmp_path):
     assert config["tracking_cleanup"]["roi"] == [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0]]
     assert config["tracking_cleanup"]["min_track_length"] == 5
     assert config["tracking_cleanup"]["min_area_ratio"] == pytest.approx(0.02)
+    assert config["tracking_cleanup"]["min_mask_fill_ratio"] == pytest.approx(0.15)
     assert config["tracking_cleanup"]["postprocess_gap_fill"] is True
 
 
@@ -249,6 +252,8 @@ def test_load_config_file_rejects_tracking_cleanup_bad_roi(tmp_path):
         ({"min_area_ratio": 0.4, "max_area_ratio": 0.3}, "tracking_cleanup.min_area_ratio"),
         ({"min_area_ratio": -0.1}, "tracking_cleanup.min_area_ratio"),
         ({"max_area_ratio": 1.1}, "tracking_cleanup.max_area_ratio"),
+        ({"min_mask_fill_ratio": -0.1}, "tracking_cleanup.min_mask_fill_ratio"),
+        ({"min_mask_fill_ratio": 1.1}, "tracking_cleanup.min_mask_fill_ratio"),
         ({"min_aspect_ratio": 2.0, "max_aspect_ratio": 1.0}, "tracking_cleanup.min_aspect_ratio"),
         ({"edge_margin_px": -1}, "tracking_cleanup.edge_margin_px"),
         ({"gap_fill_max_frames": -1}, "tracking_cleanup.gap_fill_max_frames"),

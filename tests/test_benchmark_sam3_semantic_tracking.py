@@ -80,6 +80,47 @@ def test_frame_summary_accepts_list_names():
     assert summary["class_names"] == ["cow"]
 
 
+def test_select_cleanup_keep_indices_applies_mask_fill_ratio():
+    frame = module.Sam3FrameArtifacts(
+        frame_index=0,
+        orig_img=np.zeros((40, 40, 3), dtype=np.uint8),
+        path="video.mp4",
+        names={0: "cow"},
+        xyxy=np.asarray(
+            [
+                [4.0, 4.0, 14.0, 14.0],
+                [20.0, 20.0, 30.0, 30.0],
+            ],
+            dtype=np.float32,
+        ),
+        conf=np.asarray([0.9, 0.9], dtype=np.float32),
+        cls=np.asarray([0, 0], dtype=np.int32),
+        object_ids=np.asarray([1, 2], dtype=np.int32),
+        masks=np.asarray(
+            [
+                np.pad(np.ones((8, 8), dtype=np.uint8), ((4, 28), (4, 28))),
+                np.pad(np.ones((2, 2), dtype=np.uint8), ((20, 18), (20, 18))),
+            ],
+            dtype=np.uint8,
+        ),
+    )
+    cleanup = module.TrackingCleanupConfig.from_mapping(
+        {
+            "enabled": True,
+            "conf_threshold": 0.1,
+            "nms_mode": "iou_nms",
+            "nms_iou": 0.5,
+            "drop_edge_boxes": False,
+            "min_mask_fill_ratio": 0.25,
+        }
+    )
+
+    keep_indices, removed_by_mask_fill = module._select_cleanup_keep_indices(frame, cleanup)
+
+    assert keep_indices.tolist() == [0]
+    assert removed_by_mask_fill == 1
+
+
 def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, tmp_path: Path):
     video_path = tmp_path / "input.mp4"
     video_path.write_bytes(b"placeholder")

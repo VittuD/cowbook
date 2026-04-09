@@ -60,6 +60,7 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         "max_area_px": None,
         "min_area_ratio": None,
         "max_area_ratio": None,
+        "min_mask_fill_ratio": None,
         "min_aspect_ratio": None,
         "max_aspect_ratio": None,
         "drop_edge_boxes": False,
@@ -115,6 +116,9 @@ def _normalize_tracking_cleanup(config: dict) -> None:
     )
     cleanup["max_area_ratio"] = _optional_float(
         cleanup.get("max_area_ratio"), "tracking_cleanup.max_area_ratio"
+    )
+    cleanup["min_mask_fill_ratio"] = _optional_float(
+        cleanup.get("min_mask_fill_ratio"), "tracking_cleanup.min_mask_fill_ratio"
     )
     cleanup["min_aspect_ratio"] = _optional_float(
         cleanup.get("min_aspect_ratio"), "tracking_cleanup.min_aspect_ratio"
@@ -195,6 +199,10 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         raise ValueError(
             "tracking_cleanup.min_area_ratio must be <= tracking_cleanup.max_area_ratio."
         )
+    if cleanup["min_mask_fill_ratio"] is not None and (
+        cleanup["min_mask_fill_ratio"] < 0 or cleanup["min_mask_fill_ratio"] > 1
+    ):
+        raise ValueError("tracking_cleanup.min_mask_fill_ratio must be in [0, 1].")
     if (
         cleanup["min_aspect_ratio"] is not None
         and cleanup["max_aspect_ratio"] is not None

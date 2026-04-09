@@ -99,6 +99,7 @@ class TrackingCleanupConfig:
     max_area_px: float | None = None
     min_area_ratio: float | None = None
     max_area_ratio: float | None = None
+    min_mask_fill_ratio: float | None = None
     min_aspect_ratio: float | None = None
     max_aspect_ratio: float | None = None
     drop_edge_boxes: bool = False
@@ -155,6 +156,11 @@ class TrackingCleanupConfig:
                 if data.get("max_area_ratio") is not None
                 else None
             ),
+            min_mask_fill_ratio=(
+                float(data["min_mask_fill_ratio"])
+                if data.get("min_mask_fill_ratio") is not None
+                else None
+            ),
             min_aspect_ratio=(
                 float(data["min_aspect_ratio"])
                 if data.get("min_aspect_ratio") is not None
@@ -204,6 +210,7 @@ class TrackingCleanupConfig:
             "max_area_px": self.max_area_px,
             "min_area_ratio": self.min_area_ratio,
             "max_area_ratio": self.max_area_ratio,
+            "min_mask_fill_ratio": self.min_mask_fill_ratio,
             "min_aspect_ratio": self.min_aspect_ratio,
             "max_aspect_ratio": self.max_aspect_ratio,
             "drop_edge_boxes": self.drop_edge_boxes,

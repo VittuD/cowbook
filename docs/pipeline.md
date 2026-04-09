@@ -28,7 +28,7 @@ When `tracking_cleanup.enabled` is true, the tracking stage expands into:
 
 1. detection cache for the current run
 2. detection preprocessing
-   this can apply confidence, ROI, edge, aspect, absolute-area, and frame-area-ratio filters before NMS
+   this can apply confidence, ROI, edge, aspect, absolute-area, frame-area-ratio, and optional mask-fill filters before NMS
 3. cleanup tracking pass 1
 4. optional short-track pruning by gap-tolerant consecutive streak plus optional total-observation threshold
 5. optional cleanup tracking pass 2

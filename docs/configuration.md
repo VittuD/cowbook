@@ -55,6 +55,8 @@ Area-based cleanup supports two coordinate systems:
 
 The ratio-based filters are usually the better default for experiments that may change `imgsz`, because they remain stable as the rendered frame resolution changes.
 
+When masks are available, `min_mask_fill_ratio` can add a first mask-aware reject: mask area divided by clipped box area. Very low fill ratios are often a sign of fragmentary or weak detections. This filter is additive to the existing box cleanup stages.
+
 Temporal cleanup is split into two independent controls:
 
 - `postprocess_gap_fill`: enables synthetic box insertion across small gaps, bounded by `gap_fill_max_frames`
