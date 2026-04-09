@@ -103,6 +103,7 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
         edge_margin_px=16,
         two_pass_prune_short_tracks=False,
         min_track_length=12,
+        min_track_total_observations=18,
         short_track_gap_tolerance=6,
         postprocess_smoothing=False,
     )
@@ -559,6 +560,7 @@ def _apply_cowbook_box_cleanup(
     short_track_ids = compute_short_track_ids(
         document,
         cleanup_config.min_track_length,
+        min_total_observations=cleanup_config.min_track_total_observations,
         gap_tolerance=cleanup_config.short_track_gap_tolerance,
     )
 

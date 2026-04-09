@@ -58,6 +58,7 @@ def test_normalize_config_mapping_applies_defaults_and_overrides():
     assert config["run_name"] == "normalized"
     assert config["output_root"] == "var/runs/normalized"
     assert config["video_groups"][0][0]["camera_nr"] == 1
+    assert config["tracking_cleanup"]["min_track_total_observations"] is None
 
 
 def test_load_config_file_applies_explicit_overrides(tmp_path):

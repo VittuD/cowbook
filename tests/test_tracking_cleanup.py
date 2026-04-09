@@ -136,6 +136,41 @@ def test_compute_short_track_ids_uses_gap_tolerant_streaks():
     assert compute_short_track_ids(document, min_track_length=3, gap_tolerance=0) == {100}
 
 
+def test_compute_short_track_ids_can_require_total_observations_too():
+    document = TrackingDocument(
+        frames=[
+            TrackingFrame(
+                frame_id=0,
+                detections=Detections(xyxy=[[1, 1, 10, 10]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+            TrackingFrame(
+                frame_id=4,
+                detections=Detections(xyxy=[[2, 2, 11, 11]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+            TrackingFrame(
+                frame_id=8,
+                detections=Detections(xyxy=[[4, 4, 13, 13]]),
+                labels=[TrackingLabel(class_id=0, id=100, det_idx=0, real=1, src="tracker")],
+            ),
+        ]
+    )
+
+    assert compute_short_track_ids(
+        document,
+        min_track_length=3,
+        min_total_observations=None,
+        gap_tolerance=6,
+    ) == set()
+    assert compute_short_track_ids(
+        document,
+        min_track_length=3,
+        min_total_observations=4,
+        gap_tolerance=6,
+    ) == {100}
+
+
 def test_postprocess_tracking_document_gap_fills_and_marks_synthetic_frames():
     cleanup = TrackingCleanupConfig.from_mapping(
         {

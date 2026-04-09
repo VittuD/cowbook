@@ -226,6 +226,7 @@ def _track_video_with_cleanup(
         short_track_ids = compute_short_track_ids(
             tracked,
             cleanup_config.min_track_length,
+            min_total_observations=cleanup_config.min_track_total_observations,
             gap_tolerance=cleanup_config.short_track_gap_tolerance,
         )
         pruned_frames = prune_detection_frames_by_track_ids(preprocessed_frames, tracked, short_track_ids)

@@ -65,6 +65,7 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         "roi": None,
         "two_pass_prune_short_tracks": False,
         "min_track_length": 30,
+        "min_track_total_observations": None,
         "short_track_gap_tolerance": 6,
         "postprocess_smoothing": False,
         "smoothing_alpha": 0.65,
@@ -111,6 +112,15 @@ def _normalize_tracking_cleanup(config: dict) -> None:
     cleanup["max_aspect_ratio"] = _optional_float(
         cleanup.get("max_aspect_ratio"), "tracking_cleanup.max_aspect_ratio"
     )
+    if cleanup.get("min_track_total_observations") is None:
+        cleanup["min_track_total_observations"] = None
+    else:
+        try:
+            cleanup["min_track_total_observations"] = int(cleanup["min_track_total_observations"])
+        except Exception as e:
+            raise ValueError(
+                "tracking_cleanup.min_track_total_observations must be an integer or null."
+            ) from e
 
     try:
         cleanup["edge_margin_px"] = int(cleanup["edge_margin_px"])
@@ -132,6 +142,11 @@ def _normalize_tracking_cleanup(config: dict) -> None:
         raise ValueError("tracking_cleanup.edge_margin_px must be >= 0.")
     if cleanup["min_track_length"] < 1:
         raise ValueError("tracking_cleanup.min_track_length must be >= 1.")
+    if (
+        cleanup["min_track_total_observations"] is not None
+        and cleanup["min_track_total_observations"] < 1
+    ):
+        raise ValueError("tracking_cleanup.min_track_total_observations must be >= 1 when provided.")
     if cleanup["short_track_gap_tolerance"] < 0:
         raise ValueError("tracking_cleanup.short_track_gap_tolerance must be >= 0.")
     if cleanup["gap_fill_max_frames"] < 0:

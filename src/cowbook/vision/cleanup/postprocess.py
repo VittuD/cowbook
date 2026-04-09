@@ -56,6 +56,7 @@ def compute_short_track_ids(
     document: TrackingDocument,
     min_track_length: int,
     *,
+    min_total_observations: int | None = None,
     gap_tolerance: int = 6,
 ) -> set[int]:
     frame_ids_by_track: dict[int, set[int]] = {}
@@ -67,7 +68,13 @@ def compute_short_track_ids(
     return {
         track_id
         for track_id, frame_ids in frame_ids_by_track.items()
-        if _max_gap_tolerant_streak(sorted(frame_ids), gap_tolerance) < min_track_length
+        if (
+            _max_gap_tolerant_streak(sorted(frame_ids), gap_tolerance) < min_track_length
+            or (
+                min_total_observations is not None
+                and len(frame_ids) < min_total_observations
+            )
+        )
     }
 
 

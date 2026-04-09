@@ -321,7 +321,7 @@ Notes:
 - masked-video cache defaults to `var/cache/masked_videos`
 - optional tracking cleanup lives under `tracking_cleanup`
 
-Optional tracking cleanup can preprocess detections before tracking, preserve detection lineage, prune short-lived tracks by gap-tolerant consecutive streak, and smooth final output boxes. It is off by default.
+Optional tracking cleanup can preprocess detections before tracking, preserve detection lineage, prune short-lived tracks by gap-tolerant consecutive streak plus optional total-observation threshold, and smooth final output boxes. It is off by default.
 
 Example cleanup block:
 
@@ -332,12 +332,13 @@ Example cleanup block:
   "nms_mode": "hybrid_nms",
   "two_pass_prune_short_tracks": true,
   "min_track_length": 30,
+  "min_track_total_observations": 45,
   "short_track_gap_tolerance": 6,
   "postprocess_smoothing": true
 }
 ```
 
-`min_track_length` now refers to the longest surviving streak for a track rather than its total observation count. `short_track_gap_tolerance` controls how many missing frames are allowed inside that streak.
+`min_track_length` refers to the longest surviving streak for a track rather than its total observation count. `short_track_gap_tolerance` controls how many missing frames are allowed inside that streak. `min_track_total_observations`, when set, adds a second threshold on total support across the full track.
 
 ## Output Layout
 
