@@ -289,6 +289,13 @@ def _run_tracking_pool(
     group_idx: int,
     log_progress: bool,
 ) -> list[Tuple[str | None, str | None]]:
+    """Run tracking in worker processes using the supported pooled path.
+
+    Each worker maintains its own process-local model cache, so repeated tasks
+    for the same `(model_ref, tracking_mode)` reuse one YOLO instance instead
+    of paying load cost for every video. This is the supported high-throughput
+    path for effective tracking concurrency greater than one.
+    """
     ctx = mp.get_context("spawn")
     if reporter is None:
         with ctx.Pool(processes=effective_tracking_concurrency) as pool:
@@ -336,6 +343,12 @@ def _run_tracking_tasks(
     precomputed_json_count: int,
     cancellation_token: CancellationToken | None,
 ) -> tuple[list[tuple[str, int]], list[str]]:
+    """Execute group tracking with one public concurrency knob.
+
+    The runtime contract is intentionally simple: effective concurrency one uses
+    the inline path, while higher values use the pooled worker path. Both keep
+    the same result shape, event flow, and tracking-mode isolation guarantees.
+    """
     if not tasks:
         if reporter is not None:
             reporter.emit(
