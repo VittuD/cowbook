@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 from tools.benchmark_tracking import (
     _default_tracker_config,
     _prepare_benchmark_videos,
@@ -218,9 +218,9 @@ def main() -> int:
     }
 
     if export_result.error:
-        output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        dump_path_compact(output_path, summary)
         print("TensorRT concurrency benchmark summary")
-        print(json.dumps(summary, indent=2))
+        print(dumps_pretty(summary).decode("utf-8"))
         return 0
 
     assert export_result.artifact_path is not None
@@ -261,9 +261,9 @@ def main() -> int:
             baseline / float(result["best_elapsed_s"]) if baseline and result["best_elapsed_s"] else None
         )
 
-    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(output_path, summary)
     print("TensorRT concurrency benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
     return 0
 
 

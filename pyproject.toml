@@ -16,6 +16,7 @@ dependencies = [
   "lap>=0.5.12",
   "numpy",
   "opencv-python-headless",
+  "orjson",
   "tqdm",
   "ultralytics",
 ]

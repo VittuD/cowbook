@@ -1,6 +1,4 @@
 # tracking.py
-
-import json
 import logging
 from pathlib import Path
 
@@ -18,6 +16,7 @@ from cowbook.core.contracts import (
 from cowbook.core.runtime import assets_root
 from cowbook.execution.observers import JobReporter
 from cowbook.execution.progress import TrackingProgressReporter
+from cowbook.io.json_utils import dump_path_compact
 from cowbook.vision.cleanup import (
     compute_short_track_ids,
     postprocess_tracking_document,
@@ -129,8 +128,7 @@ def _track_video_direct(
 
     # Save tracking data to a JSON file
     json_data = TrackingDocument(frames=frames).to_dict()
-    with open(output_json_path, 'w') as f:
-        json.dump(json_data, f, indent=4)
+    dump_path_compact(output_json_path, json_data)
     logger.info("Tracking data saved to %s", output_json_path)
     if log_progress or reporter is not None or progress_event_sink is not None:
         progress_reporter.stage_completed()
@@ -264,8 +262,7 @@ def _track_video_with_cleanup(
         tracked = postprocess_tracking_document(tracked, cleanup_config)
         postprocess_progress.stage_completed()
 
-    with open(output_json_path, "w") as f:
-        json.dump(tracked.to_dict(), f, indent=4)
+    dump_path_compact(output_json_path, tracked.to_dict())
     logger.info("Tracking data saved to %s", output_json_path)
 
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from cowbook.core.contracts import PipelineConfig
 from cowbook.io.directory_manager import resolve_output_paths
+from cowbook.io.json_utils import dump_path_pretty, load_path
 from cowbook.vision.calibration import default_calibration_file
 
 
@@ -286,8 +287,7 @@ def load_config_file(
 ) -> dict[str, Any]:
     """Load, normalize, and validate a config file into Cowbook's runtime shape."""
 
-    with open(config_path) as f:
-        config = json.load(f)
+    config = load_path(config_path)
     return normalize_config_mapping(config, overrides=overrides)
 
 
@@ -302,5 +302,5 @@ def write_config_file(
 
     destination = Path(output_path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(normalized, indent=2, sort_keys=True) + "\n")
+    dump_path_pretty(destination, normalized, trailing_newline=True)
     return str(destination)

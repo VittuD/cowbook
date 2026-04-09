@@ -1,5 +1,4 @@
 import concurrent.futures as _fut  # parallel rendering
-import json
 import logging
 import math
 import os
@@ -7,6 +6,7 @@ import os
 from tqdm import tqdm
 
 from cowbook.execution import CancellationToken, JobReporter, StageProgressReporter
+from cowbook.io.json_utils import dump_path_compact
 from cowbook.vision.calibration import (
     load_camera_setup,
     load_projection_context,
@@ -224,8 +224,7 @@ def save_frame_data_json(frames_data, output_json_path):
     Save updated frame data with projected centroids to a new JSON file.
     """
     frames_data_json = reconstruct_json(frames_data)
-    with open(output_json_path, 'w') as output_file:
-        json.dump(frames_data_json, output_file, indent=4)
+    dump_path_compact(output_json_path, frames_data_json)
 
 def plot_combined_projected_centroids(
     json_file_paths,

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import shutil
 import time
@@ -9,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty, load_path
 from cowbook.workflows import group_processor as group_processor_module
 from tools.benchmark_tracking import _prepare_benchmark_videos, _query_gpu_info, _repeat_mode
 from tools.benchmark_tracking_backends import ExportResult, _export_model_artifact, _normalize_imgsz
@@ -61,7 +61,7 @@ def _resolve_camera_nrs(video_paths: list[str], requested_camera_nrs: list[int] 
 
 
 def _count_frames_from_tracking_json(output_json_path: str) -> int:
-    document = json.loads(Path(output_json_path).read_text(encoding="utf-8"))
+    document = load_path(output_json_path)
     return len(document.get("frames", []))
 
 
@@ -366,9 +366,9 @@ def main() -> int:
     }
 
     if export_result.error:
-        output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        dump_path_compact(output_path, summary)
         print("Runtime tracking concurrency benchmark summary")
-        print(json.dumps(summary, indent=2))
+        print(dumps_pretty(summary).decode("utf-8"))
         return 0
 
     assert export_result.artifact_path is not None
@@ -411,9 +411,9 @@ def main() -> int:
             baseline / float(result["best_elapsed_s"]) if baseline and result["best_elapsed_s"] else None
         )
 
-    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(output_path, summary)
     print("Runtime tracking concurrency benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
     return 0
 
 

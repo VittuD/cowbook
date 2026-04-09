@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import multiprocessing as mp
 import os
 import subprocess
@@ -16,6 +15,7 @@ from ultralytics import YOLO
 from ultralytics.utils.ops import clean_str
 
 from cowbook.core.runtime import assets_root
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 
 
 @dataclass(slots=True)
@@ -334,7 +334,7 @@ def _prepare_benchmark_videos(
 
 def _print_summary(summary: dict[str, Any]) -> None:
     print("Tracking benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
 
 
 def _parse_args() -> argparse.Namespace:
@@ -519,7 +519,7 @@ def main() -> int:
                 baseline / float(result["best_elapsed_s"]) if result["best_elapsed_s"] else None
             )
 
-    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(output_path, summary)
     _print_summary(summary)
     return 0
 

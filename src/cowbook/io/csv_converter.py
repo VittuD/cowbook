@@ -36,12 +36,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import logging
 import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from cowbook.core.contracts import TrackingDocument
+from cowbook.io.json_utils import load_path
 from cowbook.core.transforms import (
     bbox_wh_area,
     centroid_from_xyxy,
@@ -55,8 +55,7 @@ logger = logging.getLogger(__name__)
 # --------- helpers ---------
 
 def _load_json(path: str) -> Dict[str, Any]:
-    with open(path, "r") as f:
-        return TrackingDocument.from_mapping(json.load(f)).to_dict()
+    return TrackingDocument.from_mapping(load_path(path)).to_dict()
 
 
 def _centroid_from_xyxy(b: List[float]) -> Tuple[float, float]:

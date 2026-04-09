@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import multiprocessing as mp
 import re
 import time
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from cowbook.io.video_processor import create_video_from_images
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty, load_path
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
 from tools.benchmark_tracking import _prepare_benchmark_videos, _query_gpu_info
@@ -53,7 +53,7 @@ def _validate_videos(video_paths: list[str]) -> list[str]:
 
 
 def _count_frames_from_tracking_json(output_json_path: str) -> int:
-    document = json.loads(Path(output_json_path).read_text(encoding="utf-8"))
+    document = load_path(output_json_path)
     return len(document.get("frames", []))
 
 
@@ -350,9 +350,9 @@ def main() -> int:
     }
 
     summary_path = output_root / args.summary_name
-    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(summary_path, summary)
     print("Tracking cleanup benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
     return 0
 
 

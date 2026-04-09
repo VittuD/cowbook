@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import time
 from dataclasses import asdict, dataclass
@@ -10,6 +9,7 @@ from typing import Any
 
 from ultralytics import YOLO
 
+from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 from tools.benchmark_tracking import (
     BenchmarkModeResult,
     _count_frames_for_source,
@@ -449,9 +449,9 @@ def main() -> int:
     for result in summary["results"]:
         result["speedup_vs_pt_best"] = pt_best / float(result["best_elapsed_s"]) if result["best_elapsed_s"] else None
 
-    output_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    dump_path_compact(output_path, summary)
     print("Tracking backend benchmark summary")
-    print(json.dumps(summary, indent=2))
+    print(dumps_pretty(summary).decode("utf-8"))
     return 0
 
 
