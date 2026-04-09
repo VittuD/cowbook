@@ -269,11 +269,10 @@ def _extract_frame_artifacts(frame_index: int, result) -> Sam3FrameArtifacts:
 
 
 def _overlay_prompt_text(image: np.ndarray, prompts: list[str]) -> np.ndarray:
-    annotated = image.copy()
     label = f"SAM3 prompts: {', '.join(prompts)}"
-    cv2.rectangle(annotated, (8, 8), (min(annotated.shape[1] - 8, 12 + 9 * len(label)), 40), (0, 0, 0), -1)
+    cv2.rectangle(image, (8, 8), (min(image.shape[1] - 8, 12 + 9 * len(label)), 40), (0, 0, 0), -1)
     cv2.putText(
-        annotated,
+        image,
         label,
         (14, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
@@ -282,7 +281,7 @@ def _overlay_prompt_text(image: np.ndarray, prompts: list[str]) -> np.ndarray:
         2,
         cv2.LINE_AA,
     )
-    return annotated
+    return image
 
 
 def _collect_runtime_info(model_path: str, device: str | None) -> dict[str, Any]:
@@ -311,11 +310,9 @@ def _draw_mask_overlay(image: np.ndarray, frame: Sam3FrameArtifacts, alpha: floa
         return rendered
     overlay = rendered.copy()
     for index, mask in enumerate(frame.masks):
-        if not np.any(mask):
-            continue
         track_id = int(frame.object_ids[index]) if frame.object_ids.size else None
         class_id = int(frame.cls[index]) if frame.cls.size else None
-        overlay[mask.astype(bool)] = _color_for_detection(track_id, class_id, index)
+        overlay[mask > 0] = _color_for_detection(track_id, class_id, index)
     return cv2.addWeighted(rendered, 1.0 - alpha, overlay, alpha, 0.0)
 
 
@@ -347,32 +344,31 @@ def _draw_box_label(
     )
 
 
-def _draw_processed_frame(
+def _draw_processed_frames(
     frame: Sam3FrameArtifacts,
     *,
     prompts: list[str],
-    clean: bool,
-) -> np.ndarray:
-    rendered = _draw_mask_overlay(frame.orig_img, frame)
-    if not clean:
-        for index, xyxy in enumerate(frame.xyxy):
-            track_id = int(frame.object_ids[index]) if frame.object_ids.size and int(frame.object_ids[index]) >= 0 else None
-            class_id = int(frame.cls[index]) if frame.cls.size else None
-            confidence = float(frame.conf[index]) if frame.conf.size else None
-            class_name = frame.names.get(class_id, str(class_id)) if class_id is not None else "obj"
-            label_parts = []
-            if track_id is not None:
-                label_parts.append(f"id:{track_id}")
-            label_parts.append(class_name)
-            if confidence is not None:
-                label_parts.append(f"{confidence:.2f}")
-            _draw_box_label(
-                rendered,
-                xyxy,
-                " ".join(label_parts),
-                _color_for_detection(track_id, class_id, index),
-            )
-    return _overlay_prompt_text(rendered, prompts)
+) -> tuple[np.ndarray, np.ndarray]:
+    clean_frame = _overlay_prompt_text(_draw_mask_overlay(frame.orig_img, frame), prompts)
+    detailed_frame = clean_frame.copy()
+    for index, xyxy in enumerate(frame.xyxy):
+        track_id = int(frame.object_ids[index]) if frame.object_ids.size and int(frame.object_ids[index]) >= 0 else None
+        class_id = int(frame.cls[index]) if frame.cls.size else None
+        confidence = float(frame.conf[index]) if frame.conf.size else None
+        class_name = frame.names.get(class_id, str(class_id)) if class_id is not None else "obj"
+        label_parts = []
+        if track_id is not None:
+            label_parts.append(f"id:{track_id}")
+        label_parts.append(class_name)
+        if confidence is not None:
+            label_parts.append(f"{confidence:.2f}")
+        _draw_box_label(
+            detailed_frame,
+            xyxy,
+            " ".join(label_parts),
+            _color_for_detection(track_id, class_id, index),
+        )
+    return detailed_frame, clean_frame
 
 
 def _select_cleanup_keep_indices(
@@ -607,8 +603,7 @@ def _write_overlay_videos(
             tracked_ids.update(int(object_id) for object_id in frame.object_ids.tolist() if int(object_id) >= 0)
             total_instances += int(frame.xyxy.shape[0])
             max_instances = max(max_instances, int(frame.xyxy.shape[0]))
-            annotated = _draw_processed_frame(frame, prompts=prompts, clean=False)
-            clean_annotated = _draw_processed_frame(frame, prompts=prompts, clean=True)
+            annotated, clean_annotated = _draw_processed_frames(frame, prompts=prompts)
             writer.write(annotated)
             clean_writer.write(clean_annotated)
             _maybe_log_frame_progress(
