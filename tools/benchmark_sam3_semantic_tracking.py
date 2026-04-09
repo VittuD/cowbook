@@ -93,14 +93,16 @@ def _default_prompts() -> list[str]:
 def _default_cleanup_config() -> TrackingCleanupConfig:
     return TrackingCleanupConfig(
         enabled=True,
-        conf_threshold=0.0,
+        conf_threshold=0.15,
         nms_mode="hybrid_nms",
-        hybrid_iou_hard=0.85,
-        hybrid_iou_guard=0.10,
-        hybrid_footpoint_dist_k=0.22,
-        hybrid_footpoint_dist_min_px=14.0,
+        hybrid_iou_hard=0.75,
+        hybrid_iou_guard=0.05,
+        hybrid_footpoint_dist_k=0.30,
+        hybrid_footpoint_dist_min_px=24.0,
+        drop_edge_boxes=True,
+        edge_margin_px=16,
         two_pass_prune_short_tracks=False,
-        min_track_length=6,
+        min_track_length=12,
         postprocess_smoothing=False,
     )
 
