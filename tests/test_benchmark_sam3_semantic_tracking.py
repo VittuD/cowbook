@@ -89,10 +89,9 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
         def __init__(self, overrides):
             recorded["overrides"] = overrides
 
-        def __call__(self, *, source, model, text, stream):
+        def __call__(self, *, source, text, stream):
             recorded["call"] = {
                 "source": source,
-                "model": model,
                 "text": text,
                 "stream": stream,
             }
@@ -120,7 +119,6 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
     assert recorded["overrides"]["conf"] == 0.25
     assert recorded["call"] == {
         "source": str(video_path),
-        "model": "sam3.pt",
         "text": ["cow"],
         "stream": True,
     }

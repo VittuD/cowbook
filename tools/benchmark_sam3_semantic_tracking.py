@@ -224,7 +224,7 @@ def _run_semantic_tracking_for_video(
 
     try:
         for frame_index, result in enumerate(
-            predictor(source=video_path, model=model_path, text=prompts, stream=True)
+            predictor(source=video_path, text=prompts, stream=True)
         ):
             summary = _frame_summary(frame_index, result)
             tracked_ids.update(summary["object_ids"])
