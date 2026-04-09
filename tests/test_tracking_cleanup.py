@@ -14,10 +14,10 @@ from cowbook.core.contracts import (
 from cowbook.vision import tracking as tracking_module
 from cowbook.vision.cleanup import (
     DetectionFrame,
-    compute_short_track_ids,
+    apply_temporal_track_postprocessing,
+    drop_pruned_tracks_from_detection_frames,
     filter_detection_frame,
-    postprocess_tracking_document,
-    prune_detection_frames_by_track_ids,
+    find_prunable_track_ids,
 )
 
 
@@ -55,7 +55,7 @@ def test_filter_detection_frame_applies_roi_and_hybrid_nms():
     assert filtered.xyxy.tolist() == [[10.0, 10.0, 30.0, 30.0]]
 
 
-def test_compute_short_track_ids_and_prune_detection_frames():
+def test_find_prunable_track_ids_and_drop_pruned_track_detections():
     detection_frames = [
         DetectionFrame(
             frame_idx=0,
@@ -102,8 +102,8 @@ def test_compute_short_track_ids_and_prune_detection_frames():
         ]
     )
 
-    short_ids = compute_short_track_ids(document, min_track_length=3, gap_tolerance=1)
-    pruned = prune_detection_frames_by_track_ids(detection_frames, document, short_ids)
+    short_ids = find_prunable_track_ids(document, min_track_streak=3, gap_tolerance=1)
+    pruned = drop_pruned_tracks_from_detection_frames(detection_frames, document, short_ids)
 
     assert short_ids == {200}
     assert pruned[0].xyxy.tolist() == [[1.0, 1.0, 10.0, 10.0]]
@@ -111,7 +111,7 @@ def test_compute_short_track_ids_and_prune_detection_frames():
     assert pruned[2].xyxy.tolist() == [[3.0, 3.0, 12.0, 12.0]]
 
 
-def test_compute_short_track_ids_uses_gap_tolerant_streaks():
+def test_find_prunable_track_ids_uses_gap_tolerant_streaks():
     document = TrackingDocument(
         frames=[
             TrackingFrame(
@@ -132,11 +132,11 @@ def test_compute_short_track_ids_uses_gap_tolerant_streaks():
         ]
     )
 
-    assert compute_short_track_ids(document, min_track_length=3, gap_tolerance=1) == set()
-    assert compute_short_track_ids(document, min_track_length=3, gap_tolerance=0) == {100}
+    assert find_prunable_track_ids(document, min_track_streak=3, gap_tolerance=1) == set()
+    assert find_prunable_track_ids(document, min_track_streak=3, gap_tolerance=0) == {100}
 
 
-def test_compute_short_track_ids_can_require_total_observations_too():
+def test_find_prunable_track_ids_can_require_total_observations_too():
     document = TrackingDocument(
         frames=[
             TrackingFrame(
@@ -157,21 +157,21 @@ def test_compute_short_track_ids_can_require_total_observations_too():
         ]
     )
 
-    assert compute_short_track_ids(
+    assert find_prunable_track_ids(
         document,
-        min_track_length=3,
+        min_track_streak=3,
         min_total_observations=None,
         gap_tolerance=6,
     ) == set()
-    assert compute_short_track_ids(
+    assert find_prunable_track_ids(
         document,
-        min_track_length=3,
+        min_track_streak=3,
         min_total_observations=4,
         gap_tolerance=6,
     ) == {100}
 
 
-def test_postprocess_tracking_document_gap_fills_and_marks_synthetic_frames():
+def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frames():
     cleanup = TrackingCleanupConfig.from_mapping(
         {
             "enabled": True,
@@ -196,7 +196,7 @@ def test_postprocess_tracking_document_gap_fills_and_marks_synthetic_frames():
         ]
     )
 
-    postprocessed = postprocess_tracking_document(document, cleanup)
+    postprocessed = apply_temporal_track_postprocessing(document, cleanup)
 
     mid_frame = postprocessed.frames[1]
     assert len(mid_frame.detections.xyxy) == 1
@@ -247,7 +247,7 @@ def test_track_video_with_yolo_uses_cleanup_path_when_enabled(tmp_path, monkeypa
     )
     monkeypatch.setattr(
         tracking_module,
-        "postprocess_tracking_document",
+        "apply_temporal_track_postprocessing",
         lambda doc, *_args, **_kwargs: calls.append("smooth") or doc,
     )
 

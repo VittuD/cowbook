@@ -18,10 +18,10 @@ from cowbook.execution.observers import JobReporter
 from cowbook.execution.progress import TrackingProgressReporter
 from cowbook.io.json_utils import dump_path_compact
 from cowbook.vision.cleanup import (
-    compute_short_track_ids,
-    postprocess_tracking_document,
+    apply_temporal_track_postprocessing,
+    drop_pruned_tracks_from_detection_frames,
+    find_prunable_track_ids,
     preprocess_detection_frames,
-    prune_detection_frames_by_track_ids,
 )
 from cowbook.vision.tracking_cleanup import (
     detect_video_to_frames,
@@ -223,13 +223,17 @@ def _track_video_with_cleanup(
             event_sink=progress_event_sink,
         )
         prune_progress.stage_started()
-        short_track_ids = compute_short_track_ids(
+        short_track_ids = find_prunable_track_ids(
             tracked,
             cleanup_config.min_track_length,
             min_total_observations=cleanup_config.min_track_total_observations,
             gap_tolerance=cleanup_config.short_track_gap_tolerance,
         )
-        pruned_frames = prune_detection_frames_by_track_ids(preprocessed_frames, tracked, short_track_ids)
+        pruned_frames = drop_pruned_tracks_from_detection_frames(
+            preprocessed_frames,
+            tracked,
+            short_track_ids,
+        )
         prune_progress.stage_completed()
         pass2_progress = TrackingProgressReporter(
             tracking_mode="cleanup",
@@ -264,7 +268,7 @@ def _track_video_with_cleanup(
             event_sink=progress_event_sink,
         )
         postprocess_progress.stage_started()
-        tracked = postprocess_tracking_document(tracked, cleanup_config)
+        tracked = apply_temporal_track_postprocessing(tracked, cleanup_config)
         postprocess_progress.stage_completed()
 
     dump_path_compact(output_json_path, tracked.to_dict())

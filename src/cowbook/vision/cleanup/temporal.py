@@ -9,13 +9,12 @@ from cowbook.core.contracts import (
     TrackingDocument,
     TrackingLabel,
 )
-from cowbook.vision.cleanup.preprocess import DetectionFrame
 
 _SMOOTH_EPS = 1e-3
 
 
 @dataclass(slots=True)
-class _TrackObs:
+class _TrackObservation:
     frame_idx: int
     box: np.ndarray
     class_id: int
@@ -37,88 +36,15 @@ def _cxcywh_to_xyxy(values: np.ndarray) -> np.ndarray:
     return np.array([cx - w / 2.0, cy - h / 2.0, cx + w / 2.0, cy + h / 2.0], dtype=np.float32)
 
 
-def _max_gap_tolerant_streak(frame_ids: list[int], gap_tolerance: int) -> int:
-    if not frame_ids:
-        return 0
-    best = 1
-    current = 1
-    for previous, current_frame in zip(frame_ids, frame_ids[1:]):
-        gap = current_frame - previous - 1
-        if gap <= gap_tolerance:
-            current += 1
-        else:
-            best = max(best, current)
-            current = 1
-    return max(best, current)
-
-
-def compute_short_track_ids(
-    document: TrackingDocument,
-    min_track_length: int,
-    *,
-    min_total_observations: int | None = None,
-    gap_tolerance: int = 6,
-) -> set[int]:
-    frame_ids_by_track: dict[int, set[int]] = {}
-    for frame in document.frames:
-        for label in frame.labels:
-            if label.id is None or label.det_idx is None or label.det_idx < 0:
-                continue
-            frame_ids_by_track.setdefault(label.id, set()).add(frame.frame_id)
-    return {
-        track_id
-        for track_id, frame_ids in frame_ids_by_track.items()
-        if (
-            _max_gap_tolerant_streak(sorted(frame_ids), gap_tolerance) < min_track_length
-            or (
-                min_total_observations is not None
-                and len(frame_ids) < min_total_observations
-            )
-        )
-    }
-
-
-def prune_detection_frames_by_track_ids(
-    detection_frames: list[DetectionFrame],
-    document: TrackingDocument,
-    short_track_ids: set[int],
-) -> list[DetectionFrame]:
-    pruned_frames: list[DetectionFrame] = []
-    for det_frame, track_frame in zip(detection_frames, document.frames):
-        drop: set[int] = set()
-        for label in track_frame.labels:
-            if label.id is None or label.id not in short_track_ids:
-                continue
-            if label.det_idx is None or label.det_idx < 0 or label.det_idx >= det_frame.conf.shape[0]:
-                continue
-            drop.add(label.det_idx)
-        if not drop:
-            pruned_frames.append(det_frame)
-            continue
-        keep_mask = np.ones((det_frame.conf.shape[0],), dtype=bool)
-        for index in drop:
-            keep_mask[index] = False
-        pruned_frames.append(
-            DetectionFrame(
-                frame_idx=det_frame.frame_idx,
-                shape=det_frame.shape,
-                xyxy=det_frame.xyxy[keep_mask],
-                conf=det_frame.conf[keep_mask],
-                cls=det_frame.cls[keep_mask],
-            )
-        )
-    return pruned_frames
-
-
-def _build_track_observations(document: TrackingDocument) -> dict[int, list[_TrackObs]]:
-    observations: dict[int, list[_TrackObs]] = {}
+def _build_track_observations(document: TrackingDocument) -> dict[int, list[_TrackObservation]]:
+    observations: dict[int, list[_TrackObservation]] = {}
     for frame in document.frames:
         boxes = frame.detections.xyxy
         for index, label in enumerate(frame.labels):
             if label.id is None or index >= len(boxes):
                 continue
             observations.setdefault(label.id, []).append(
-                _TrackObs(
+                _TrackObservation(
                     frame_idx=frame.frame_id,
                     box=np.asarray(boxes[index], dtype=np.float32),
                     class_id=label.class_id or 0,
@@ -224,7 +150,7 @@ def _apply_ema_smoothing(document: TrackingDocument, cleanup_config: TrackingCle
                     label.src = "smooth"
 
 
-def postprocess_tracking_document(
+def apply_temporal_track_postprocessing(
     document: TrackingDocument,
     cleanup_config: TrackingCleanupConfig,
 ) -> TrackingDocument:

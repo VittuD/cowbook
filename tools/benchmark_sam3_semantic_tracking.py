@@ -21,7 +21,7 @@ from cowbook.core.contracts import (
 from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 from cowbook.vision.cleanup import (
     clip_boxes,
-    compute_short_track_ids,
+    find_prunable_track_ids,
     footprint_nms_xyxy,
     hybrid_nms_xyxy,
     iou_nms_xyxy,
@@ -557,7 +557,7 @@ def _apply_cowbook_box_cleanup(
     prefiltered = [_subset_frame(frame, _select_cleanup_keep_indices(frame, cleanup_config)) for frame in frames]
     prefiltered_detection_count = int(sum(frame.xyxy.shape[0] for frame in prefiltered))
     document = _build_tracking_document(prefiltered)
-    short_track_ids = compute_short_track_ids(
+    short_track_ids = find_prunable_track_ids(
         document,
         cleanup_config.min_track_length,
         min_total_observations=cleanup_config.min_track_total_observations,

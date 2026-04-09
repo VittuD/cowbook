@@ -93,15 +93,15 @@ def test_cleanup_tracking_emits_shared_stage_events(tmp_path, monkeypatch):
         lambda frames, *_args, **_kwargs: frames,
     )
     monkeypatch.setattr(tracking_module, "track_from_detection_frames", fake_track)
-    monkeypatch.setattr(tracking_module, "compute_short_track_ids", lambda *_args, **_kwargs: {1})
+    monkeypatch.setattr(tracking_module, "find_prunable_track_ids", lambda *_args, **_kwargs: {1})
     monkeypatch.setattr(
         tracking_module,
-        "prune_detection_frames_by_track_ids",
+        "drop_pruned_tracks_from_detection_frames",
         lambda frames, *_args, **_kwargs: frames,
     )
     monkeypatch.setattr(
         tracking_module,
-        "postprocess_tracking_document",
+        "apply_temporal_track_postprocessing",
         lambda doc, *_args, **_kwargs: doc,
     )
 
