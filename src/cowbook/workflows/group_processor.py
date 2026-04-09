@@ -5,7 +5,7 @@ import multiprocessing as mp
 import os
 import time
 from queue import Empty
-from typing import List, Tuple
+from typing import Iterable, List, Tuple
 
 from cowbook.execution import (
     MERGE_FAILED,
@@ -17,7 +17,7 @@ from cowbook.execution import (
 )
 from cowbook.io.csv_converter import json_to_csv
 from cowbook.io.json_merger import merge_json_files
-from cowbook.vision.frame_processor import process_and_save_frames
+from cowbook.vision.frame_processor import ProcessedJsonArtifact, process_and_save_frames
 from cowbook.vision.tracking import load_yolo_model, track_video_with_yolo
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,19 @@ class _TrackingTask:
     save: bool
     tracking_cleanup: dict | None
     camera_nr: int
+
+
+@dataclass(slots=True)
+class _GroupArtifact:
+    camera_nr: int
+    tracking_json_path: str
+    source_kind: str
+    processed_json_path: str | None = None
+    csv_path: str | None = None
+
+
+def _expected_processed_json_path(tracking_json_path: str) -> str:
+    return tracking_json_path.replace(".json", "_processed.json")
 
 
 def _tracking_mode_from_cleanup(tracking_cleanup: dict | None) -> str:
@@ -242,8 +255,8 @@ def _collect_source_entries_and_tracking_tasks(
     output_json_folder: str,
     reporter: JobReporter | None,
     group_idx: int,
-) -> tuple[list[tuple[str, int]], list[_TrackingTask], int]:
-    source_entries: list[tuple[str, int]] = []
+) -> tuple[list[_GroupArtifact], list[_TrackingTask], int]:
+    source_artifacts: list[_GroupArtifact] = []
     tasks: list[_TrackingTask] = []
     precomputed_json_count = 0
 
@@ -255,7 +268,13 @@ def _collect_source_entries_and_tracking_tasks(
         if str(video_path).lower().endswith(".json"):
             output_json = video_path
             logger.debug("Using existing tracking JSON: %s", output_json)
-            source_entries.append((output_json, camera_nr))
+            source_artifacts.append(
+                _GroupArtifact(
+                    camera_nr=camera_nr,
+                    tracking_json_path=output_json,
+                    source_kind="precomputed",
+                )
+            )
             precomputed_json_count += 1
             if reporter is not None:
                 reporter.artifact(
@@ -278,7 +297,7 @@ def _collect_source_entries_and_tracking_tasks(
             )
         )
 
-    return source_entries, tasks, precomputed_json_count
+    return source_artifacts, tasks, precomputed_json_count
 
 
 def _run_tracking_pool(
@@ -443,20 +462,64 @@ def _run_tracking_tasks(
     return tracked_source_entries, tracking_errors
 
 
-def _processed_camera_nrs(
-    source_entries: list[tuple[str, int]],
-    processed_json_paths: list[str],
-) -> list[int]:
+def _tracking_artifacts_from_entries(
+    tracked_source_entries: list[tuple[str, int]],
+) -> list[_GroupArtifact]:
     return [
-        camera_nr
-        for input_json_path, camera_nr in source_entries
-        if input_json_path.replace(".json", "_processed.json") in processed_json_paths
+        _GroupArtifact(
+            camera_nr=camera_nr,
+            tracking_json_path=tracking_json_path,
+            source_kind="inference",
+        )
+        for tracking_json_path, camera_nr in tracked_source_entries
     ]
 
 
+def _normalize_processed_artifacts(
+    processed_results: Iterable[ProcessedJsonArtifact | str],
+    *,
+    source_artifacts: list[_GroupArtifact],
+) -> list[ProcessedJsonArtifact]:
+    normalized: list[ProcessedJsonArtifact] = []
+    by_expected_path = {
+        _expected_processed_json_path(artifact.tracking_json_path): artifact
+        for artifact in source_artifacts
+    }
+
+    for item in processed_results:
+        if isinstance(item, ProcessedJsonArtifact):
+            normalized.append(item)
+            continue
+        artifact = by_expected_path.get(item)
+        if artifact is None:
+            continue
+        normalized.append(
+            ProcessedJsonArtifact(
+                input_json_path=artifact.tracking_json_path,
+                processed_json_path=item,
+                camera_nr=artifact.camera_nr,
+            )
+        )
+    return normalized
+
+
+def _attach_processed_artifacts(
+    source_artifacts: list[_GroupArtifact],
+    processed_artifacts: list[ProcessedJsonArtifact],
+) -> list[_GroupArtifact]:
+    by_tracking_path = {artifact.tracking_json_path: artifact for artifact in source_artifacts}
+    attached: list[_GroupArtifact] = []
+    for processed_artifact in processed_artifacts:
+        source_artifact = by_tracking_path.get(processed_artifact.input_json_path)
+        if source_artifact is None:
+            continue
+        source_artifact.processed_json_path = processed_artifact.processed_json_path
+        attached.append(source_artifact)
+    return attached
+
+
 def _emit_processed_json_artifacts(
-    processed_json_paths: list[str],
-    processed_camera_nrs: list[int],
+    processed_artifacts: list[_GroupArtifact],
     *,
     reporter: JobReporter | None,
     group_idx: int,
@@ -464,25 +527,27 @@ def _emit_processed_json_artifacts(
     if reporter is None:
         return
 
-    for processed_json_path, camera_nr in zip(processed_json_paths, processed_camera_nrs):
+    for artifact in processed_artifacts:
+        assert artifact.processed_json_path is not None
         reporter.artifact(
             "processed_json",
-            processed_json_path,
+            artifact.processed_json_path,
             group_idx=group_idx,
-            metadata={"camera_nr": camera_nr},
+            metadata={"camera_nr": artifact.camera_nr},
         )
     reporter.emit(
         "processing_completed",
         stage="processing",
         group_idx=group_idx,
-        payload={"processed_json_count": len(processed_json_paths)},
+        payload={"processed_json_count": len(processed_artifacts)},
     )
 
 
-def _remove_unprocessed_jsons(output_json_paths: list[str], processed_json_paths: list[str]) -> None:
-    for json_path in output_json_paths:
+def _remove_unprocessed_jsons(source_artifacts: list[_GroupArtifact]) -> None:
+    for artifact in source_artifacts:
         try:
-            if os.path.exists(json_path) and json_path not in processed_json_paths:
+            json_path = artifact.tracking_json_path
+            if os.path.exists(json_path) and artifact.processed_json_path is None:
                 os.remove(json_path)
                 logger.debug("Deleted unprocessed JSON: %s", json_path)
         except Exception as e:
@@ -493,14 +558,19 @@ def _merge_processed_jsons(
     *,
     group_idx: int,
     output_json_folder: str,
-    processed_json_paths: list[str],
-    processed_camera_nrs: list[int],
+    processed_artifacts: list[_GroupArtifact],
     reporter: JobReporter | None,
     cancellation_token: CancellationToken | None,
 ) -> str:
     merged_json_path = os.path.join(output_json_folder, f"group_{group_idx}_merged_processed.json")
     _raise_if_cancelled(cancellation_token)
     try:
+        processed_json_paths = [
+            artifact.processed_json_path
+            for artifact in processed_artifacts
+            if artifact.processed_json_path is not None
+        ]
+        processed_camera_nrs = [artifact.camera_nr for artifact in processed_artifacts]
         if processed_json_paths:
             if reporter is not None:
                 reporter.emit(
@@ -549,7 +619,7 @@ def _merge_processed_jsons(
 def _export_csv_artifacts(
     *,
     config: dict,
-    processed_json_paths: list[str],
+    processed_artifacts: list[_GroupArtifact],
     merged_json_path: str,
     reporter: JobReporter | None,
     group_idx: int,
@@ -559,11 +629,15 @@ def _export_csv_artifacts(
         return []
 
     csv_paths: list[str] = []
-    for json_path in processed_json_paths:
+    for artifact in processed_artifacts:
         _raise_if_cancelled(cancellation_token)
+        json_path = artifact.processed_json_path
+        if json_path is None:
+            continue
         if json_path and json_path.endswith("_processed.json") and os.path.exists(json_path):
             csv_path = json_to_csv(json_path)
             if csv_path:
+                artifact.csv_path = csv_path
                 csv_paths.append(csv_path)
                 if reporter is not None:
                     reporter.artifact("csv", csv_path, group_idx=group_idx)
@@ -618,7 +692,7 @@ def process_video_group(
             payload={"input_count": len(video_group)},
         )
 
-    source_entries, tasks, precomputed_json_count = _collect_source_entries_and_tracking_tasks(
+    source_artifacts, tasks, precomputed_json_count = _collect_source_entries_and_tracking_tasks(
         video_group,
         model_ref=model_ref,
         config=config,
@@ -634,10 +708,10 @@ def process_video_group(
         precomputed_json_count=precomputed_json_count,
         cancellation_token=cancellation_token,
     )
-    source_entries.extend(tracked_source_entries)
+    source_artifacts.extend(_tracking_artifacts_from_entries(tracked_source_entries))
 
-    output_json_paths = [path for path, _camera_nr in source_entries]
-    camera_nrs = [camera_nr for _path, camera_nr in source_entries]
+    output_json_paths = [artifact.tracking_json_path for artifact in source_artifacts]
+    camera_nrs = [artifact.camera_nr for artifact in source_artifacts]
 
     if not output_json_paths:
         raise RuntimeError(f"No JSONs produced for group {group_idx}; aborting group.")
@@ -651,7 +725,7 @@ def process_video_group(
             payload={"input_json_count": len(output_json_paths)},
         )
     try:
-        processed_json_paths = process_and_save_frames(
+        processed_results = process_and_save_frames(
             output_json_paths,
             camera_nrs,
             output_image_folder,
@@ -662,12 +736,17 @@ def process_video_group(
             reporter=reporter,
             group_idx=group_idx,
             log_progress=bool(config.get("log_progress", False)),
+            return_artifacts=True,
+        )
+        processed_artifacts = _normalize_processed_artifacts(
+            processed_results,
+            source_artifacts=source_artifacts,
         )
     except Exception as e:
         if isinstance(e, JobCancelledError):
             raise
         logger.exception("Rendering frames failed for group %d: %s", group_idx, e)
-        processed_json_paths = []
+        processed_artifacts = []
         if reporter is not None:
             reporter.emit(
                 "processing_failed",
@@ -677,27 +756,25 @@ def process_video_group(
                 payload={"error_code": PROCESSING_FAILED, "error_detail": str(e)},
             )
 
-    processed_camera_nrs = _processed_camera_nrs(source_entries, processed_json_paths)
+    processed_group_artifacts = _attach_processed_artifacts(source_artifacts, processed_artifacts)
     _emit_processed_json_artifacts(
-        processed_json_paths,
-        processed_camera_nrs,
+        processed_group_artifacts,
         reporter=reporter,
         group_idx=group_idx,
     )
-    _remove_unprocessed_jsons(output_json_paths, processed_json_paths)
+    _remove_unprocessed_jsons(source_artifacts)
 
     merged_json_path = _merge_processed_jsons(
         group_idx=group_idx,
         output_json_folder=output_json_folder,
-        processed_json_paths=processed_json_paths,
-        processed_camera_nrs=processed_camera_nrs,
+        processed_artifacts=processed_group_artifacts,
         reporter=reporter,
         cancellation_token=cancellation_token,
     )
 
     _export_csv_artifacts(
         config=config,
-        processed_json_paths=processed_json_paths,
+        processed_artifacts=processed_group_artifacts,
         merged_json_path=merged_json_path,
         reporter=reporter,
         group_idx=group_idx,
@@ -711,7 +788,7 @@ def process_video_group(
             group_idx=group_idx,
             payload={
                 "tracking_json_count": len(output_json_paths),
-                "processed_json_count": len(processed_json_paths),
+                "processed_json_count": len(processed_group_artifacts),
                 "merged_json_path": merged_json_path,
             },
         )

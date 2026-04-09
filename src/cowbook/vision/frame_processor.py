@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import concurrent.futures as _fut  # parallel rendering
 import logging
 import math
@@ -28,6 +29,13 @@ logger = logging.getLogger(__name__)
 
 # Global cache used within each worker process to avoid reloading the barn image on every frame
 _BARN_IMG = None
+
+
+@dataclass(slots=True)
+class ProcessedJsonArtifact:
+    input_json_path: str
+    processed_json_path: str
+    camera_nr: int
 
 def _render_frame_worker(args):
     """
@@ -67,7 +75,21 @@ def _process_centroids_worker(args):
     save_frame_data_json(frames_data, updated_json_file_path)
     return updated_json_file_path, camera_nr
 
-def process_and_save_frames(
+
+def _processed_json_artifact(
+    *,
+    input_json_path: str,
+    processed_json_path: str,
+    camera_nr: int,
+) -> ProcessedJsonArtifact:
+    return ProcessedJsonArtifact(
+        input_json_path=input_json_path,
+        processed_json_path=processed_json_path,
+        camera_nr=camera_nr,
+    )
+
+
+def process_and_save_frames_with_metadata(
     json_file_paths,
     camera_nrs,
     output_image_folder,
@@ -79,18 +101,8 @@ def process_and_save_frames(
     group_idx: int | None = None,
     log_progress: bool = False,
 ):
-    """
-    Process detections from each of the JSON files, project centroids,
-    later saves each frame as an image by combining the projected points of each JSON.
-    Inputs: json_file_paths: list of paths to JSON files containing tracking data
-            camera_nr: list of camera numbers, one for each JSON file
-            output_image_folder: path to the output folder where images will be saved
-            calibration_file: path to the calibration file for the cameras
-            num_plot_workers: number of parallel workers for rendering images (0 = sequential)
-            output_image_format: "png" or "jpg" for the output images (jpg is smaller file size and faster to write)
-    Returns: None
-    """
-    updated_json_file_paths = []
+    """Process detections and return explicit per-camera processed-artifact metadata."""
+    processed_artifacts: list[ProcessedJsonArtifact] = []
     processing_tasks = list(zip(json_file_paths, camera_nrs))
     process_workers = min(len(processing_tasks), os.cpu_count() or 1)
     process_progress = StageProgressReporter(
@@ -105,7 +117,7 @@ def process_and_save_frames(
     process_progress.stage_started()
 
     if process_workers > 1:
-        processed_by_input: dict[str, str] = {}
+        processed_by_input: dict[str, ProcessedJsonArtifact] = {}
         with _fut.ProcessPoolExecutor(max_workers=process_workers) as ex:
             future_map = {
                 ex.submit(
@@ -119,10 +131,14 @@ def process_and_save_frames(
                 if cancellation_token is not None:
                     cancellation_token.raise_if_cancelled()
                 try:
-                    updated_json_file_path, _ = future.result()
-                    processed_by_input[json_file_path] = updated_json_file_path
+                    processed_json_path, _ = future.result()
+                    processed_by_input[json_file_path] = _processed_json_artifact(
+                        input_json_path=json_file_path,
+                        processed_json_path=processed_json_path,
+                        camera_nr=camera_nr,
+                    )
                     process_progress.step_progress(len(processed_by_input), len(processing_tasks))
-                    logger.info("Processed frame data saved to %s", updated_json_file_path)
+                    logger.info("Processed frame data saved to %s", processed_json_path)
                 except Exception as exc:
                     logger.exception(
                         "Failed processing %s for camera %d: %s",
@@ -130,7 +146,7 @@ def process_and_save_frames(
                         camera_nr,
                         exc,
                     )
-        updated_json_file_paths = [
+        processed_artifacts = [
             processed_by_input[json_file_path]
             for json_file_path, _camera_nr in processing_tasks
             if json_file_path in processed_by_input
@@ -146,13 +162,19 @@ def process_and_save_frames(
                     show_progress=True,
                 )
 
-                updated_json_file_path = os.path.join(
+                processed_json_path = os.path.join(
                     json_file_path.replace(".json", "_processed.json")
                 )
-                save_frame_data_json(frames_data, updated_json_file_path)
-                updated_json_file_paths.append(updated_json_file_path)
-                process_progress.step_progress(len(updated_json_file_paths), len(processing_tasks))
-                logger.info("Processed frame data saved to %s", updated_json_file_path)
+                save_frame_data_json(frames_data, processed_json_path)
+                processed_artifacts.append(
+                    _processed_json_artifact(
+                        input_json_path=json_file_path,
+                        processed_json_path=processed_json_path,
+                        camera_nr=camera_nr,
+                    )
+                )
+                process_progress.step_progress(len(processed_artifacts), len(processing_tasks))
+                logger.info("Processed frame data saved to %s", processed_json_path)
             except Exception as exc:
                 logger.exception(
                     "Failed processing %s for camera %d: %s",
@@ -162,11 +184,12 @@ def process_and_save_frames(
                 )
     process_progress.stage_completed()
 
-    # Plot combined projected centroids from multiple JSON files for each frame and save as images
-    if updated_json_file_paths:
+    processed_json_paths = [artifact.processed_json_path for artifact in processed_artifacts]
+
+    if processed_json_paths:
         base_filename = os.path.join(output_image_folder, "combined_projected_centroids")
         plot_combined_projected_centroids(
-            updated_json_file_paths,
+            processed_json_paths,
             base_filename,
             num_workers=num_plot_workers,
             image_format=output_image_format,
@@ -176,8 +199,47 @@ def process_and_save_frames(
             log_progress=log_progress,
         )
 
-    # Return processed JSON paths so caller can merge them
-    return updated_json_file_paths
+    return processed_artifacts
+
+def process_and_save_frames(
+    json_file_paths,
+    camera_nrs,
+    output_image_folder,
+    calibration_file,
+    num_plot_workers=0,
+    output_image_format="jpg",
+    cancellation_token: CancellationToken | None = None,
+    reporter: JobReporter | None = None,
+    group_idx: int | None = None,
+    log_progress: bool = False,
+    return_artifacts: bool = False,
+):
+    """
+    Process detections from each of the JSON files, project centroids,
+    later saves each frame as an image by combining the projected points of each JSON.
+    Inputs: json_file_paths: list of paths to JSON files containing tracking data
+            camera_nr: list of camera numbers, one for each JSON file
+            output_image_folder: path to the output folder where images will be saved
+            calibration_file: path to the calibration file for the cameras
+            num_plot_workers: number of parallel workers for rendering images (0 = sequential)
+            output_image_format: "png" or "jpg" for the output images (jpg is smaller file size and faster to write)
+    Returns: None
+    """
+    processed_artifacts = process_and_save_frames_with_metadata(
+        json_file_paths,
+        camera_nrs,
+        output_image_folder,
+        calibration_file,
+        num_plot_workers=num_plot_workers,
+        output_image_format=output_image_format,
+        cancellation_token=cancellation_token,
+        reporter=reporter,
+        group_idx=group_idx,
+        log_progress=log_progress,
+    )
+    if return_artifacts:
+        return processed_artifacts
+    return [artifact.processed_json_path for artifact in processed_artifacts]
 
 def process_centroids(
     json_file,
