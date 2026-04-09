@@ -19,6 +19,7 @@ from tools.benchmark_tracking import _prepare_benchmark_videos, _probe_video_met
 class Sam3VideoRunResult:
     video_path: str
     annotated_video_path: str
+    clean_annotated_video_path: str
     summary_json_path: str
     elapsed_s: float
     frame_count: int
@@ -203,6 +204,7 @@ def _run_semantic_tracking_for_video(
 
     stem = _artifact_stem(video_path)
     annotated_video_path = video_dir / f"{stem}_sam3_annotated.mp4"
+    clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_clean.mp4"
     summary_json_path = json_dir / f"{stem}_sam3_summary.json"
 
     predictor = SAM3VideoSemanticPredictor(
@@ -222,6 +224,7 @@ def _run_semantic_tracking_for_video(
     )
 
     writer = _open_video_writer(annotated_video_path, fps=fps, frame_size=(width, height))
+    clean_writer = _open_video_writer(clean_annotated_video_path, fps=fps, frame_size=(width, height))
     frame_summaries: list[dict[str, Any]] = []
     tracked_ids: set[int] = set()
     frame_count = 0
@@ -242,11 +245,15 @@ def _run_semantic_tracking_for_video(
                 frame_summaries.append(summary)
 
             plotted = result.plot()
+            clean_plotted = result.plot(labels=False, conf=False, boxes=False, masks=True)
             annotated = _overlay_prompt_text(plotted, prompts)
+            clean_annotated = _overlay_prompt_text(clean_plotted, prompts)
             writer.write(annotated)
+            clean_writer.write(clean_annotated)
             frame_count += 1
     finally:
         writer.release()
+        clean_writer.release()
 
     elapsed_s = time.perf_counter() - start
     mean_instances = (total_instances / frame_count) if frame_count else 0.0
@@ -254,6 +261,7 @@ def _run_semantic_tracking_for_video(
     summary_payload: dict[str, Any] = {
         "video_path": video_path,
         "annotated_video_path": str(annotated_video_path),
+        "clean_annotated_video_path": str(clean_annotated_video_path),
         "elapsed_s": elapsed_s,
         "frame_count": frame_count,
         "fps": fps,
@@ -274,6 +282,7 @@ def _run_semantic_tracking_for_video(
     return Sam3VideoRunResult(
         video_path=video_path,
         annotated_video_path=str(annotated_video_path),
+        clean_annotated_video_path=str(clean_annotated_video_path),
         summary_json_path=str(summary_json_path),
         elapsed_s=elapsed_s,
         frame_count=frame_count,

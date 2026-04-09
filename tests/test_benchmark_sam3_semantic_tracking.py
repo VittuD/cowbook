@@ -106,7 +106,7 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
             self.boxes = FakeBoxes(object_ids)
             self.names = {0: "cow"}
 
-        def plot(self):
+        def plot(self, **_kwargs):
             return np.zeros((24, 32, 3), dtype=np.uint8)
 
     class FakePredictor:
@@ -151,4 +151,5 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
     assert result.mean_instances_per_frame == 1.5
     assert result.max_instances_per_frame == 2
     assert Path(result.annotated_video_path).exists()
+    assert Path(result.clean_annotated_video_path).exists()
     assert Path(result.summary_json_path).exists()
