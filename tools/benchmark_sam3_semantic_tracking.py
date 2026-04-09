@@ -9,8 +9,6 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 import ultralytics
-import torch
-from ultralytics.engine.results import Results
 from ultralytics.models.sam import SAM3VideoSemanticPredictor
 
 from cowbook.core.contracts import (
@@ -97,12 +95,12 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
         enabled=True,
         conf_threshold=0.0,
         nms_mode="hybrid_nms",
-        hybrid_iou_hard=0.92,
-        hybrid_iou_guard=0.15,
-        hybrid_footpoint_dist_k=0.18,
-        hybrid_footpoint_dist_min_px=10.0,
+        hybrid_iou_hard=0.85,
+        hybrid_iou_guard=0.10,
+        hybrid_footpoint_dist_k=0.22,
+        hybrid_footpoint_dist_min_px=14.0,
         two_pass_prune_short_tracks=False,
-        min_track_length=3,
+        min_track_length=6,
         postprocess_smoothing=False,
     )
 
@@ -293,6 +291,86 @@ def _collect_runtime_info(model_path: str, device: str | None) -> dict[str, Any]
         "device": device,
         "sam3_semantic_predictor": SAM3VideoSemanticPredictor.__name__,
     }
+
+
+def _color_for_detection(track_id: int | None, class_id: int | None, index: int) -> tuple[int, int, int]:
+    seed = track_id if track_id is not None and track_id >= 0 else (class_id if class_id is not None else index)
+    value = int(seed) * 2654435761 % (1 << 32)
+    return (
+        48 + int((value >> 16) & 0x7F),
+        48 + int((value >> 8) & 0x7F),
+        48 + int(value & 0x7F),
+    )
+
+
+def _draw_mask_overlay(image: np.ndarray, frame: Sam3FrameArtifacts, alpha: float = 0.45) -> np.ndarray:
+    rendered = image.copy()
+    if frame.masks.shape[0] == 0:
+        return rendered
+    overlay = rendered.copy()
+    for index, mask in enumerate(frame.masks):
+        if not np.any(mask):
+            continue
+        track_id = int(frame.object_ids[index]) if frame.object_ids.size else None
+        class_id = int(frame.cls[index]) if frame.cls.size else None
+        overlay[mask.astype(bool)] = _color_for_detection(track_id, class_id, index)
+    return cv2.addWeighted(rendered, 1.0 - alpha, overlay, alpha, 0.0)
+
+
+def _draw_box_label(
+    image: np.ndarray,
+    xyxy: np.ndarray,
+    label: str | None,
+    color: tuple[int, int, int],
+) -> None:
+    x1, y1, x2, y2 = [int(round(value)) for value in xyxy.tolist()]
+    cv2.rectangle(image, (x1, y1), (x2, y2), color, 2, cv2.LINE_AA)
+    if not label:
+        return
+    (text_w, text_h), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    text_y = max(text_h + baseline + 4, y1)
+    text_box_y1 = max(0, text_y - text_h - baseline - 4)
+    text_box_y2 = min(image.shape[0] - 1, text_y + 2)
+    text_box_x2 = min(image.shape[1] - 1, x1 + text_w + 8)
+    cv2.rectangle(image, (x1, text_box_y1), (text_box_x2, text_box_y2), color, -1)
+    cv2.putText(
+        image,
+        label,
+        (x1 + 4, text_y - 3),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.5,
+        (255, 255, 255),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_processed_frame(
+    frame: Sam3FrameArtifacts,
+    *,
+    prompts: list[str],
+    clean: bool,
+) -> np.ndarray:
+    rendered = _draw_mask_overlay(frame.orig_img, frame)
+    if not clean:
+        for index, xyxy in enumerate(frame.xyxy):
+            track_id = int(frame.object_ids[index]) if frame.object_ids.size and int(frame.object_ids[index]) >= 0 else None
+            class_id = int(frame.cls[index]) if frame.cls.size else None
+            confidence = float(frame.conf[index]) if frame.conf.size else None
+            class_name = frame.names.get(class_id, str(class_id)) if class_id is not None else "obj"
+            label_parts = []
+            if track_id is not None:
+                label_parts.append(f"id:{track_id}")
+            label_parts.append(class_name)
+            if confidence is not None:
+                label_parts.append(f"{confidence:.2f}")
+            _draw_box_label(
+                rendered,
+                xyxy,
+                " ".join(label_parts),
+                _color_for_detection(track_id, class_id, index),
+            )
+    return _overlay_prompt_text(rendered, prompts)
 
 
 def _select_cleanup_keep_indices(
@@ -503,38 +581,6 @@ def _apply_cowbook_box_cleanup(
     return cleaned_frames, short_track_ids, stats
 
 
-def _build_results_for_frame(frame: Sam3FrameArtifacts) -> Results:
-    if frame.xyxy.shape[0]:
-        object_ids = (
-            frame.object_ids.astype(np.float32)
-            if frame.object_ids.size
-            else np.full((frame.xyxy.shape[0],), -1.0, dtype=np.float32)
-        )
-        conf = frame.conf.astype(np.float32) if frame.conf.size else np.ones((frame.xyxy.shape[0],), dtype=np.float32)
-        cls = frame.cls.astype(np.float32) if frame.cls.size else np.zeros((frame.xyxy.shape[0],), dtype=np.float32)
-        boxes = np.concatenate(
-            [
-                frame.xyxy.astype(np.float32),
-                object_ids[:, None],
-                conf[:, None],
-                cls[:, None],
-            ],
-            axis=1,
-        )
-        masks = frame.masks.astype(np.uint8) if frame.masks.shape[0] else None
-    else:
-        boxes = np.zeros((0, 7), dtype=np.float32)
-        masks = np.zeros((0, frame.orig_img.shape[0], frame.orig_img.shape[1]), dtype=np.uint8)
-
-    return Results(
-        orig_img=frame.orig_img.copy(),
-        path=frame.path,
-        names=frame.names,
-        boxes=torch.from_numpy(boxes),
-        masks=torch.from_numpy(masks) if masks is not None else None,
-    )
-
-
 def _write_overlay_videos(
     frames: list[Sam3FrameArtifacts],
     *,
@@ -559,12 +605,8 @@ def _write_overlay_videos(
             tracked_ids.update(int(object_id) for object_id in frame.object_ids.tolist() if int(object_id) >= 0)
             total_instances += int(frame.xyxy.shape[0])
             max_instances = max(max_instances, int(frame.xyxy.shape[0]))
-            result = _build_results_for_frame(frame)
-            annotated = _overlay_prompt_text(result.plot(), prompts)
-            clean_annotated = _overlay_prompt_text(
-                result.plot(labels=False, conf=False, boxes=False, masks=True),
-                prompts,
-            )
+            annotated = _draw_processed_frame(frame, prompts=prompts, clean=False)
+            clean_annotated = _draw_processed_frame(frame, prompts=prompts, clean=True)
             writer.write(annotated)
             clean_writer.write(clean_annotated)
             _maybe_log_frame_progress(
