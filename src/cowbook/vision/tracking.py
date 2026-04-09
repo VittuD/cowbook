@@ -75,6 +75,7 @@ def _track_video_direct(
         conf=0.45,      # ↑ fewer false positives
         iou=0.5,        # NMS
         tracker=str(assets_root() / "trackers" / "cows_botsort.yaml"),
+        verbose=False,
     )
     frames: list[TrackingFrame] = []
     progress_reporter = TrackingProgressReporter(

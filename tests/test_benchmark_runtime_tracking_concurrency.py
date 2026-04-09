@@ -61,3 +61,41 @@ def test_benchmark_backend_for_concurrency_reports_effective_workers(monkeypatch
     assert result["requested_concurrency"] == 3
     assert result["effective_tracking_concurrency"] == 3
     assert result["process_workers"] == 3
+
+
+def test_tracking_run_forwards_log_progress_into_runtime_config(monkeypatch, tmp_path: Path):
+    recorded = {}
+
+    monkeypatch.setattr(
+        module,
+        "_count_frames_from_tracking_json",
+        lambda _path: 10,
+    )
+
+    monkeypatch.setattr(
+        module.group_processor_module,
+        "_collect_source_entries_and_tracking_tasks",
+        lambda *_args, **kwargs: (
+            [],
+            [object()],
+            0,
+        ),
+    )
+
+    def fake_run_tracking_tasks(tasks, *, config, reporter, group_idx, precomputed_json_count, cancellation_token):
+        recorded["config"] = config
+        return [((str(tmp_path / "out.json")), 1)], []
+
+    monkeypatch.setattr(module.group_processor_module, "_run_tracking_tasks", fake_run_tracking_tasks)
+
+    result = module._tracking_run(
+        videos=["sample_data/videos/Ch1_60.mp4"],
+        camera_nrs=[1],
+        model_path="models/yolov11_best.pt",
+        concurrency=2,
+        output_json_folder=str(tmp_path),
+        log_progress=True,
+    )
+
+    assert recorded["config"]["log_progress"] is True
+    assert result.tracking_error_count == 0

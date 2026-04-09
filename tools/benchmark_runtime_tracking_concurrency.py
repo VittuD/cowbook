@@ -5,13 +5,24 @@ import json
 import re
 import shutil
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from cowbook.workflows import group_processor as group_processor_module
 from tools.benchmark_tracking import _prepare_benchmark_videos, _query_gpu_info, _repeat_mode
 from tools.benchmark_tracking_backends import ExportResult, _export_model_artifact, _normalize_imgsz
+
+
+@dataclass(slots=True)
+class RuntimeTrackingRunResult:
+    mode: str
+    elapsed_s: float
+    per_source_frame_count: dict[str, int]
+    tracking_error_count: int
+    tracking_errors: list[str]
+    tracked_output_jsons: list[str]
+    notes: list[str] | None = None
 
 
 def _default_videos() -> list[str]:
@@ -68,12 +79,13 @@ def _tracking_run(
     model_path: str,
     concurrency: int,
     output_json_folder: str,
-) -> dict[str, Any]:
+    log_progress: bool,
+) -> RuntimeTrackingRunResult:
     config = {
         "model_path": model_path,
         "tracking_concurrency": int(concurrency),
         "save_tracking_video": False,
-        "log_progress": False,
+        "log_progress": bool(log_progress),
     }
     source_entries, tasks, precomputed_json_count = group_processor_module._collect_source_entries_and_tracking_tasks(
         _video_group(videos, camera_nrs),
@@ -101,18 +113,18 @@ def _tracking_run(
         output_json_path: _count_frames_from_tracking_json(output_json_path)
         for output_json_path, _camera_nr in tracked_source_entries
     }
-    return {
-        "mode": "group_processor_tracking",
-        "elapsed_s": elapsed_s,
-        "per_source_frame_count": per_source_frame_count,
-        "tracking_error_count": len(tracking_errors),
-        "tracking_errors": tracking_errors,
-        "tracked_output_jsons": [path for path, _camera_nr in tracked_source_entries],
-        "notes": [
+    return RuntimeTrackingRunResult(
+        mode="group_processor_tracking",
+        elapsed_s=elapsed_s,
+        per_source_frame_count=per_source_frame_count,
+        tracking_error_count=len(tracking_errors),
+        tracking_errors=tracking_errors,
+        tracked_output_jsons=[path for path, _camera_nr in tracked_source_entries],
+        notes=[
             "Exercises cowbook.workflows.group_processor._run_tracking_tasks.",
             "Concurrency 1 uses the inline path; higher values use the multiprocessing pool path.",
         ],
-    }
+    )
 
 
 def _warmup_runtime_tracking(
@@ -142,6 +154,7 @@ def _warmup_runtime_tracking(
             model_path=model_path,
             concurrency=concurrency,
             output_json_folder=str(run_dir),
+            log_progress=log_progress,
         )
 
 
@@ -182,6 +195,7 @@ def _benchmark_backend_for_concurrency(
             model_path=model_path,
             concurrency=concurrency,
             output_json_folder=str(run_dir),
+            log_progress=log_progress,
         )
 
     return _repeat_mode(
