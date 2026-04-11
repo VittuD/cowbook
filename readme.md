@@ -185,6 +185,7 @@ Docker images included:
 - `docker/Dockerfile.a40-bench`: direct tracking benchmark/runtime image
 - `docker/Dockerfile.a40-cleanup`: cleanup-focused GPU benchmark/runtime image
 - `docker/Dockerfile.backend-bench`: backend A/B benchmark image for `.pt` vs exported `onnx` / `engine` artifacts
+- `docker/Dockerfile.deva-base`: heavy cached DEVA + Grounded-Segment-Anything dependency image
 - `docker/Dockerfile.deva-bench`: DEVA text-prompted video segmentation benchmark image
 - `docker/Dockerfile.sam3-bench`: SAM3 all-instance semantic video tracking benchmark image
 - `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
@@ -253,7 +254,12 @@ The TensorRT concurrency image runs `tools.benchmark_runtime_tracking_concurrenc
 
 The SAM3 benchmark image runs `tools.benchmark_sam3_semantic_tracking` for text-only all-instance concept tracking, writes per-video JSON summaries, and produces annotated overlay videos for visual inspection. Its defaults target `/scratch/vet/var/benchmarks/sam3_semantic_tracking_300s`. Per the Ultralytics SAM3 docs, the `sam3.pt` weights are not auto-downloaded and must be provided explicitly in the image or working directory. The image also preinstalls the extra SAM3 runtime dependencies that Ultralytics otherwise attempts to install dynamically at runtime, including the Ultralytics `CLIP` package and `timm`.
 
-The DEVA benchmark image runs `tools.benchmark_deva_text_tracking` as a thin Cowbook wrapper around upstream `Tracking-Anything-with-DEVA` text mode. It clones both DEVA and the `hkchengrex/Grounded-Segment-Anything` fork during build, installs their Python packages, downloads the DEVA propagation models, and bakes in the baseline GroundingDINO + SAM checkpoints required for text-prompted runs. Its defaults target `/scratch/vet/var/benchmarks/deva_text_tracking_300s`.
+The DEVA benchmark path is split into two images:
+
+- `docker/Dockerfile.deva-base`: the heavy cached layer with upstream DEVA, the `hkchengrex/Grounded-Segment-Anything` fork, Python dependencies, and downloaded checkpoints
+- `docker/Dockerfile.deva-bench`: the thin Cowbook wrapper image that installs the local package and benchmark tool on top of that base
+
+This split keeps normal Cowbook changes from invalidating the expensive DEVA/GSA install and checkpoint-download layers, so rebuilds and registry pushes stay much smaller after the base image is established. The DEVA benchmark image runs `tools.benchmark_deva_text_tracking` as a thin wrapper around upstream `Tracking-Anything-with-DEVA` text mode and defaults to `/scratch/vet/var/benchmarks/deva_text_tracking_300s`.
 
 Build the TensorRT concurrency image:
 
@@ -261,7 +267,13 @@ Build the TensorRT concurrency image:
 docker build -f docker/Dockerfile.tensorrt-bench -t cowbook-tensorrt-bench .
 ```
 
-Build the DEVA benchmark image:
+Build the DEVA base image:
+
+```bash
+docker build -f docker/Dockerfile.deva-base -t cowbook-deva-base .
+```
+
+Build the DEVA benchmark image on top of that base:
 
 ```bash
 docker build -f docker/Dockerfile.deva-bench -t cowbook-deva-bench .
