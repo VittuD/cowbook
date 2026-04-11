@@ -11,7 +11,9 @@ COPY pyproject.toml readme.md /app/
 COPY src /app/src
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install -e .
+    python -m pip install "ultralytics==8.4.34" lap opencv-python-headless orjson tqdm && \
+    python -m pip install --no-deps -e . && \
+    python -c "import torch; import ultralytics; from groundingdino import _C"
 
 COPY --chown=cowbook:cowbook assets /app/assets
 COPY --chown=cowbook:cowbook sample_data/videos /app/sample_data/videos
