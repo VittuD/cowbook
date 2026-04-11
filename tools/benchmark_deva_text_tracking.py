@@ -441,9 +441,9 @@ def main() -> int:
     )
     benchmark_videos = prepared_videos or videos
 
-    output_root = Path(args.output_root)
+    output_root = Path(args.output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
-    prepared_frame_dir = Path(args.prepared_frame_dir)
+    prepared_frame_dir = Path(args.prepared_frame_dir).resolve()
     prepared_frame_dir.mkdir(parents=True, exist_ok=True)
 
     runtime_info = {
