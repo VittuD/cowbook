@@ -23,6 +23,7 @@ def test_build_deva_text_command_matches_expected_shape():
         python_bin="/usr/bin/python3",
         frames_dir="/tmp/frames",
         output_dir="/tmp/out",
+        deva_model_path="/opt/deva/saves/DEVA-propagation.pth",
         prompts=["cow", "calf"],
         chunk_size=4,
         size=480,
@@ -34,6 +35,8 @@ def test_build_deva_text_command_matches_expected_shape():
     assert command == [
         "/usr/bin/python3",
         "demo/demo_with_text.py",
+        "--model",
+        "/opt/deva/saves/DEVA-propagation.pth",
         "--chunk_size",
         "4",
         "--img_path",
@@ -65,6 +68,8 @@ def test_run_deva_text_tracking_for_video_writes_summary(monkeypatch, tmp_path: 
     raw_dir.mkdir(parents=True)
     rendered = raw_dir / "demo.mp4"
     rendered.write_bytes(b"mp4")
+    deva_model = tmp_path / "DEVA-propagation.pth"
+    deva_model.write_bytes(b"weights")
     recorded: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -101,6 +106,7 @@ def test_run_deva_text_tracking_for_video_writes_summary(monkeypatch, tmp_path: 
         deva_repo=str(deva_repo),
         gsa_repo=str(gsa_repo),
         python_bin="/usr/bin/python3",
+        deva_model_path=str(deva_model),
         sam_variant="original",
         size=480,
         chunk_size=4,

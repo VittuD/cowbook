@@ -59,6 +59,10 @@ def _default_gsa_repo() -> str:
     return "/opt/Grounded-Segment-Anything"
 
 
+def _default_deva_model_path() -> str:
+    return "/opt/Tracking-Anything-with-DEVA/saves/DEVA-propagation.pth"
+
+
 def _default_prepared_frame_dir() -> str:
     return "var/benchmarks/prepared_frames_deva"
 
@@ -152,6 +156,7 @@ def _build_deva_text_command(
     python_bin: str,
     frames_dir: str,
     output_dir: str,
+    deva_model_path: str,
     prompts: list[str],
     chunk_size: int,
     size: int,
@@ -162,6 +167,8 @@ def _build_deva_text_command(
     command = [
         python_bin,
         "demo/demo_with_text.py",
+        "--model",
+        deva_model_path,
         "--chunk_size",
         str(chunk_size),
         "--img_path",
@@ -200,6 +207,7 @@ def _run_deva_text_tracking_for_video(
     deva_repo: str,
     gsa_repo: str,
     python_bin: str,
+    deva_model_path: str,
     sam_variant: str,
     size: int,
     chunk_size: int,
@@ -234,6 +242,7 @@ def _run_deva_text_tracking_for_video(
         python_bin=python_bin,
         frames_dir=str(frames_dir),
         output_dir=str(raw_dir),
+        deva_model_path=deva_model_path,
         prompts=prompts,
         chunk_size=chunk_size,
         size=size,
@@ -279,6 +288,7 @@ def _run_deva_text_tracking_for_video(
         "amp": amp,
         "max_frames": max_frames,
         "deva_command": command,
+        "deva_model_path": deva_model_path,
     }
     dump_path_compact(summary_json_path, summary_payload)
     _log_progress(log_progress, f"[deva] done: {video_path} in {elapsed_s:.2f}s -> {summary_json_path}")
@@ -357,6 +367,11 @@ def _parse_args() -> argparse.Namespace:
         help="Python interpreter used to invoke upstream DEVA scripts.",
     )
     parser.add_argument(
+        "--deva-model-path",
+        default=_default_deva_model_path(),
+        help="Absolute path to the DEVA propagation checkpoint.",
+    )
+    parser.add_argument(
         "--sam-variant",
         choices=("original", "sam_hq", "sam_hq_light", "mobile"),
         default="original",
@@ -414,6 +429,9 @@ def main() -> int:
     prompts = _resolve_prompts(args.prompts)
     deva_repo = _validate_repo_path(args.deva_repo, "DEVA")
     gsa_repo = _validate_repo_path(args.gsa_repo, "Grounded-Segment-Anything")
+    deva_model_path = str(Path(args.deva_model_path))
+    if not Path(deva_model_path).exists():
+        raise FileNotFoundError(f"DEVA propagation checkpoint does not exist: {deva_model_path}")
 
     prepared_videos, prepared_video_metadata = _prepare_benchmark_videos(
         videos,
@@ -442,6 +460,7 @@ def main() -> int:
             deva_repo=deva_repo,
             gsa_repo=gsa_repo,
             python_bin=args.python_bin,
+            deva_model_path=deva_model_path,
             sam_variant=args.sam_variant,
             size=int(args.size),
             chunk_size=int(args.chunk_size),
