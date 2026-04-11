@@ -6,7 +6,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     AM_I_DOCKER=False \
     BUILD_WITH_CUDA=True \
+    FORCE_CUDA=1 \
     CUDA_HOME=/usr/local/cuda \
+    TORCH_CUDA_ARCH_LIST=8.6 \
     DEVA_REPO=/opt/Tracking-Anything-with-DEVA \
     GSA_REPO=/opt/Grounded-Segment-Anything
 
@@ -27,8 +29,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install "transformers==4.41.2" && \
     git clone https://github.com/hkchengrex/Tracking-Anything-with-DEVA.git "${DEVA_REPO}" && \
     git clone https://github.com/hkchengrex/Grounded-Segment-Anything.git "${GSA_REPO}" && \
+    cd "${GSA_REPO}" && git submodule update --init --recursive && \
     python -m pip install -e "${GSA_REPO}/segment_anything" && \
-    python -m pip install --no-build-isolation -e "${GSA_REPO}/GroundingDINO" && \
+    cd "${GSA_REPO}/GroundingDINO" && \
+    python setup.py build_ext --inplace && \
+    python -m pip install --no-build-isolation -e . && \
+    python -c "import groundingdino; from groundingdino import _C; import groundingdino.models.GroundingDINO.ms_deform_attn as m; print(groundingdino.__file__)" && \
     python -m pip install -e "${DEVA_REPO}" && \
     python -c "from transformers import BertModel; from segment_anything import sam_model_registry; from groundingdino import _C; from groundingdino.util.inference import Model; assert hasattr(BertModel, 'get_head_mask')"
 
