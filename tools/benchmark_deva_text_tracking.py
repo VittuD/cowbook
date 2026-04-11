@@ -243,11 +243,7 @@ def _run_deva_text_tracking_for_video(
     )
     env = dict(os.environ)
     existing_pythonpath = env.get("PYTHONPATH", "")
-    pythonpath_entries = [
-        deva_repo,
-        gsa_repo,
-        str(Path(gsa_repo) / "GroundingDINO"),
-    ]
+    pythonpath_entries = [deva_repo]
     env["PYTHONPATH"] = ":".join(
         [entry for entry in pythonpath_entries + ([existing_pythonpath] if existing_pythonpath else []) if entry]
     )
