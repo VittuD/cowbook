@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM ultralytics/ultralytics:8.4.34
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-devel
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -e "${GSA_REPO}/segment_anything" && \
     python -m pip install --no-build-isolation -e "${GSA_REPO}/GroundingDINO" && \
     python -m pip install -e "${DEVA_REPO}" && \
-    python -c "from transformers import BertModel; from segment_anything import sam_model_registry; from groundingdino.util.inference import Model; assert hasattr(BertModel, 'get_head_mask')"
+    python -c "from transformers import BertModel; from segment_anything import sam_model_registry; from groundingdino import _C; from groundingdino.util.inference import Model; assert hasattr(BertModel, 'get_head_mask')"
 
 RUN cd "${DEVA_REPO}" && bash scripts/download_models.sh && \
     mkdir -p "${GSA_REPO}/weights" && \
