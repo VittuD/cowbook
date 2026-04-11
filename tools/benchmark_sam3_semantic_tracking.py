@@ -45,6 +45,8 @@ class Sam3VideoRunResult:
     height: int
     prompts: list[str]
     model_path: str
+    imgsz: int
+    render_mode: str
     mean_instances_per_frame: float
     max_instances_per_frame: int
     tracked_object_ids: list[int]
@@ -664,20 +666,32 @@ def _write_overlay_videos(
     clean_path: Path,
     fps: float,
     prompts: list[str],
+    max_render_frames: int,
     log_progress: bool = False,
     log_every_frames: int = 25,
     stage_label: str = "processed_overlays",
 ) -> tuple[float, int, list[int]]:
     if not frames:
         return 0.0, 0, []
+    render_frames = frames[:max_render_frames] if max_render_frames > 0 else frames
+    if not render_frames:
+        return 0.0, 0, []
 
-    writer = _open_video_writer(detailed_path, fps=fps, frame_size=(frames[0].orig_img.shape[1], frames[0].orig_img.shape[0]))
-    clean_writer = _open_video_writer(clean_path, fps=fps, frame_size=(frames[0].orig_img.shape[1], frames[0].orig_img.shape[0]))
+    writer = _open_video_writer(
+        detailed_path,
+        fps=fps,
+        frame_size=(render_frames[0].orig_img.shape[1], render_frames[0].orig_img.shape[0]),
+    )
+    clean_writer = _open_video_writer(
+        clean_path,
+        fps=fps,
+        frame_size=(render_frames[0].orig_img.shape[1], render_frames[0].orig_img.shape[0]),
+    )
     tracked_ids: set[int] = set()
     total_instances = 0
     max_instances = 0
     try:
-        for frame in frames:
+        for render_index, frame in enumerate(render_frames):
             tracked_ids.update(int(object_id) for object_id in frame.object_ids.tolist() if int(object_id) >= 0)
             total_instances += int(frame.xyxy.shape[0])
             max_instances = max(max_instances, int(frame.xyxy.shape[0]))
@@ -687,8 +701,8 @@ def _write_overlay_videos(
             _maybe_log_frame_progress(
                 enabled=log_progress,
                 video_path=stage_label,
-                frame_index=frame.frame_index,
-                frame_count=len(frames),
+                frame_index=render_index,
+                frame_count=len(render_frames),
                 instance_count=int(frame.xyxy.shape[0]),
                 every_n_frames=log_every_frames,
             )
@@ -696,7 +710,7 @@ def _write_overlay_videos(
         writer.release()
         clean_writer.release()
 
-    mean_instances = (total_instances / len(frames)) if frames else 0.0
+    mean_instances = (total_instances / len(render_frames)) if render_frames else 0.0
     return mean_instances, max_instances, sorted(tracked_ids)
 
 
@@ -707,8 +721,12 @@ def _run_semantic_tracking_for_video(
     prompts: list[str],
     model_path: str,
     conf_threshold: float,
+    imgsz: int,
     device: str | None,
     half: bool,
+    render_mode: str,
+    max_frames: int,
+    max_render_frames: int,
     dump_frame_metadata: bool,
     log_progress: bool,
     log_every_frames: int,
@@ -734,6 +752,7 @@ def _run_semantic_tracking_for_video(
     predictor = SAM3VideoSemanticPredictor(
         overrides={
             "conf": conf_threshold,
+            "imgsz": imgsz,
             "task": "segment",
             "mode": "predict",
             "model": model_path,
@@ -747,8 +766,12 @@ def _run_semantic_tracking_for_video(
         }
     )
 
-    writer = _open_video_writer(annotated_video_path, fps=fps, frame_size=(width, height))
-    clean_writer = _open_video_writer(clean_annotated_video_path, fps=fps, frame_size=(width, height))
+    expected_logged_frame_count = min(expected_frame_count, max_frames) if max_frames > 0 else expected_frame_count
+    writer = None
+    clean_writer = None
+    if render_mode in {"all", "raw-only"}:
+        writer = _open_video_writer(annotated_video_path, fps=fps, frame_size=(width, height))
+        clean_writer = _open_video_writer(clean_annotated_video_path, fps=fps, frame_size=(width, height))
     frame_summaries: list[dict[str, Any]] = []
     raw_frames: list[Sam3FrameArtifacts] = []
     tracked_ids: set[int] = set()
@@ -770,24 +793,33 @@ def _run_semantic_tracking_for_video(
                 frame_summaries.append(summary)
             raw_frames.append(_extract_frame_artifacts(frame_index, result))
 
-            plotted = result.plot()
-            clean_plotted = result.plot(labels=False, conf=False, boxes=False, masks=True)
-            annotated = _overlay_prompt_text(plotted, prompts)
-            clean_annotated = _overlay_prompt_text(clean_plotted, prompts)
-            writer.write(annotated)
-            clean_writer.write(clean_annotated)
+            if (
+                writer is not None
+                and clean_writer is not None
+                and (max_render_frames <= 0 or frame_count < max_render_frames)
+            ):
+                plotted = result.plot()
+                clean_plotted = result.plot(labels=False, conf=False, boxes=False, masks=True)
+                annotated = _overlay_prompt_text(plotted, prompts)
+                clean_annotated = _overlay_prompt_text(clean_plotted, prompts)
+                writer.write(annotated)
+                clean_writer.write(clean_annotated)
             frame_count += 1
             _maybe_log_frame_progress(
                 enabled=log_progress,
                 video_path=video_path,
                 frame_index=frame_index,
-                frame_count=expected_frame_count,
+                frame_count=expected_logged_frame_count,
                 instance_count=int(summary["instance_count"]),
                 every_n_frames=log_every_frames,
             )
+            if max_frames > 0 and frame_count >= max_frames:
+                break
     finally:
-        writer.release()
-        clean_writer.release()
+        if writer is not None:
+            writer.release()
+        if clean_writer is not None:
+            clean_writer.release()
 
     elapsed_s = time.perf_counter() - start
     mean_instances = (total_instances / frame_count) if frame_count else 0.0
@@ -811,22 +843,28 @@ def _run_semantic_tracking_for_video(
             f"elapsed_s={cleanup_elapsed_s:.2f}"
         ),
     )
-    processed_overlay_start = time.perf_counter()
-    processed_mean_instances, processed_max_instances, processed_tracked_ids = _write_overlay_videos(
-        processed_frames,
-        detailed_path=processed_annotated_video_path,
-        clean_path=processed_clean_annotated_video_path,
-        fps=fps,
-        prompts=prompts,
-        log_progress=log_progress,
-        log_every_frames=log_every_frames,
-        stage_label=f"{video_path} processed_overlays",
-    )
-    processed_overlay_elapsed_s = time.perf_counter() - processed_overlay_start
-    _log_progress(
-        log_progress,
-        f"[sam3] processed overlays written: {video_path} elapsed_s={processed_overlay_elapsed_s:.2f}",
-    )
+    processed_mean_instances = 0.0
+    processed_max_instances = 0
+    processed_tracked_ids: list[int] = []
+    processed_overlay_elapsed_s = 0.0
+    if render_mode in {"all", "processed-only"}:
+        processed_overlay_start = time.perf_counter()
+        processed_mean_instances, processed_max_instances, processed_tracked_ids = _write_overlay_videos(
+            processed_frames,
+            detailed_path=processed_annotated_video_path,
+            clean_path=processed_clean_annotated_video_path,
+            fps=fps,
+            prompts=prompts,
+            max_render_frames=max_render_frames,
+            log_progress=log_progress,
+            log_every_frames=log_every_frames,
+            stage_label=f"{video_path} processed_overlays",
+        )
+        processed_overlay_elapsed_s = time.perf_counter() - processed_overlay_start
+        _log_progress(
+            log_progress,
+            f"[sam3] processed overlays written: {video_path} elapsed_s={processed_overlay_elapsed_s:.2f}",
+        )
 
     summary_payload: dict[str, Any] = {
         "video_path": video_path,
@@ -841,6 +879,10 @@ def _run_semantic_tracking_for_video(
         "height": height,
         "prompts": prompts,
         "model_path": model_path,
+        "imgsz": imgsz,
+        "render_mode": render_mode,
+        "max_frames": max_frames,
+        "max_render_frames": max_render_frames,
         "mean_instances_per_frame": mean_instances,
         "max_instances_per_frame": max_instances,
         "tracked_object_ids": sorted(tracked_ids),
@@ -872,6 +914,8 @@ def _run_semantic_tracking_for_video(
         height=height,
         prompts=prompts,
         model_path=model_path,
+        imgsz=imgsz,
+        render_mode=render_mode,
         mean_instances_per_frame=mean_instances,
         max_instances_per_frame=max_instances,
         tracked_object_ids=sorted(tracked_ids),
@@ -926,6 +970,12 @@ def _parse_args() -> argparse.Namespace:
         help="Confidence threshold passed to the semantic predictor.",
     )
     parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=640,
+        help="Inference image size forwarded to Ultralytics.",
+    )
+    parser.add_argument(
         "--device",
         default=None,
         help="Optional device override forwarded to Ultralytics.",
@@ -941,6 +991,24 @@ def _parse_args() -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Include per-frame object summaries in the per-video JSON output.",
+    )
+    parser.add_argument(
+        "--render-mode",
+        choices=("all", "processed-only", "raw-only", "none"),
+        default="all",
+        help="Choose which annotated videos to write during the run.",
+    )
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=0,
+        help="If > 0, stop after this many frames for faster tuning runs.",
+    )
+    parser.add_argument(
+        "--max-render-frames",
+        type=int,
+        default=600,
+        help="Maximum number of frames to render into annotated videos. Use 0 for no limit.",
     )
     parser.add_argument(
         "--log-progress",
@@ -959,6 +1027,12 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = _parse_args()
+    if int(args.imgsz) < 1:
+        raise ValueError("--imgsz must be >= 1.")
+    if int(args.max_frames) < 0:
+        raise ValueError("--max-frames must be >= 0.")
+    if int(args.max_render_frames) < 0:
+        raise ValueError("--max-render-frames must be >= 0.")
     videos = _validate_videos(args.videos)
     prompts = _resolve_prompts(args.prompts)
     model_path = _validate_model_path(args.model_path)
@@ -981,8 +1055,12 @@ def main() -> int:
             prompts=prompts,
             model_path=model_path,
             conf_threshold=float(args.conf_threshold),
+            imgsz=int(args.imgsz),
             device=args.device,
             half=bool(args.half),
+            render_mode=str(args.render_mode),
+            max_frames=int(args.max_frames),
+            max_render_frames=int(args.max_render_frames),
             dump_frame_metadata=bool(args.dump_frame_metadata),
             log_progress=bool(args.log_progress),
             log_every_frames=int(args.log_every_frames),

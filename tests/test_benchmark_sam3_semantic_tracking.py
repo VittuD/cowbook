@@ -204,14 +204,19 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
         prompts=["cow"],
         model_path="sam3.pt",
         conf_threshold=0.25,
+        imgsz=512,
         device="0",
         half=True,
+        render_mode="all",
+        max_frames=0,
+        max_render_frames=600,
         dump_frame_metadata=True,
         log_progress=False,
         log_every_frames=25,
     )
 
     assert recorded["overrides"]["conf"] == 0.25
+    assert recorded["overrides"]["imgsz"] == 512
     assert recorded["call"] == {
         "source": str(video_path),
         "text": ["cow"],
@@ -229,3 +234,90 @@ def test_run_semantic_tracking_for_video_writes_summary_and_video(monkeypatch, t
     assert result.processed_max_instances_per_frame == 0
     assert result.processed_tracked_object_ids == []
     assert Path(result.summary_json_path).exists()
+
+
+def test_run_semantic_tracking_for_video_respects_max_frames(monkeypatch, tmp_path: Path):
+    video_path = tmp_path / "input.mp4"
+    video_path.write_bytes(b"placeholder")
+
+    class FakeBoxes:
+        def __init__(self, object_ids):
+            self.xyxy = FakeArray([[0.0, 0.0, 10.0, 10.0]] * len(object_ids))
+            self.id = FakeTensor(object_ids)
+            self.conf = FakeTensor([0.85 for _ in object_ids])
+            self.cls = FakeTensor([0 for _ in object_ids])
+
+        def __len__(self):
+            return len(self.id.tolist())
+
+    class FakeArray:
+        def __init__(self, values):
+            self._values = np.asarray(values, dtype=np.float32)
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return self._values
+
+    class FakeTensor:
+        def __init__(self, values):
+            self._values = values
+
+        def tolist(self):
+            return list(self._values)
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.asarray(self._values, dtype=np.float32)
+
+    class FakeMasks:
+        def __init__(self, count: int):
+            self.data = FakeArray(np.ones((count, 24, 32), dtype=np.uint8))
+
+    class FakeResult:
+        def __init__(self, object_ids):
+            self.boxes = FakeBoxes(object_ids)
+            self.names = {0: "cow"}
+            self.orig_img = np.zeros((24, 32, 3), dtype=np.uint8)
+            self.path = str(video_path)
+            self.masks = FakeMasks(len(object_ids))
+
+        def plot(self, **_kwargs):
+            return np.zeros((24, 32, 3), dtype=np.uint8)
+
+    class FakePredictor:
+        def __init__(self, overrides):
+            self.overrides = overrides
+
+        def __call__(self, *, source, text, stream):
+            return iter([FakeResult([1]), FakeResult([2]), FakeResult([3])])
+
+    monkeypatch.setattr(module, "SAM3VideoSemanticPredictor", FakePredictor)
+    monkeypatch.setattr(
+        module,
+        "_probe_video_metadata",
+        lambda _path: {"fps": 5.0, "width": 32, "height": 24, "frame_count": 3},
+    )
+
+    result = module._run_semantic_tracking_for_video(
+        video_path=str(video_path),
+        output_root=tmp_path / "out",
+        prompts=["cow"],
+        model_path="sam3.pt",
+        conf_threshold=0.25,
+        imgsz=512,
+        device="0",
+        half=True,
+        render_mode="none",
+        max_frames=1,
+        max_render_frames=600,
+        dump_frame_metadata=False,
+        log_progress=False,
+        log_every_frames=25,
+    )
+
+    assert result.frame_count == 1
+    assert result.tracked_object_ids == [1]
