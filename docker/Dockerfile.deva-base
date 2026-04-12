@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip wheel && \
-    python -m pip install "setuptools==69.5.1" packaging cython ninja && \
+    python -m pip install "setuptools==69.5.1" packaging cython ninja "h5py==3.10.0" && \
     python -c "import pkg_resources; import packaging; print(pkg_resources.__file__)" && \
     python -m pip install "transformers==4.41.2" && \
     git clone https://github.com/hkchengrex/Tracking-Anything-with-DEVA.git "${DEVA_REPO}" && \
@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     test -s /tmp/groundingdino_ext_paths.txt && \
     python -m pip install --no-build-isolation -e . && \
     python -c "import groundingdino; from groundingdino import _C; import groundingdino.models.GroundingDINO.ms_deform_attn as m; print(groundingdino.__file__)" && \
-    python -m pip install -e "${DEVA_REPO}" && \
+    python -m pip install --no-deps -e "${DEVA_REPO}" && \
     python -c "from transformers import BertModel; from segment_anything import sam_model_registry; from groundingdino import _C; from groundingdino.util.inference import Model; assert hasattr(BertModel, 'get_head_mask')"
 
 RUN cd "${DEVA_REPO}" && bash scripts/download_models.sh && \
