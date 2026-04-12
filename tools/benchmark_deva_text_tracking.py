@@ -13,7 +13,6 @@ from typing import Any, Iterable
 import cv2
 
 from cowbook.io.json_utils import dump_path_compact, dumps_pretty
-from tools.benchmark_tracking import _prepare_benchmark_videos, _probe_video_metadata, _query_gpu_info
 
 
 @dataclass(slots=True)
@@ -70,6 +69,156 @@ def _default_prepared_frame_dir() -> str:
 def _log_progress(enabled: bool, message: str) -> None:
     if enabled:
         print(message, flush=True)
+
+
+def _query_gpu_info() -> list[str]:
+    try:
+        completed = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,driver_version",
+                "--format=csv,noheader",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return []
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _probe_video_metadata(video_path: str) -> dict[str, float | int]:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {video_path}")
+
+    try:
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+    finally:
+        capture.release()
+
+    if fps <= 0:
+        fps = 30.0
+
+    return {
+        "fps": fps,
+        "frame_count": frame_count,
+        "width": width,
+        "height": height,
+        "duration_s": (frame_count / fps) if fps > 0 and frame_count > 0 else 0.0,
+    }
+
+
+def _load_video_frames(video_path: str) -> tuple[list[Any], float, tuple[int, int]]:
+    capture = cv2.VideoCapture(video_path)
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {video_path}")
+
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = 30.0
+
+    frames: list[Any] = []
+    frame_size = (0, 0)
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            if frame_size == (0, 0):
+                frame_size = (int(frame.shape[1]), int(frame.shape[0]))
+            frames.append(frame)
+    finally:
+        capture.release()
+
+    if not frames:
+        raise ValueError(f"No frames read from video: {video_path}")
+
+    return frames, fps, frame_size
+
+
+def _build_extended_video(
+    source_video: str,
+    *,
+    target_duration_seconds: int,
+    output_dir: Path,
+    log_progress: bool = False,
+) -> str:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    source_path = Path(source_video)
+    output_path = output_dir / f"{source_path.stem}_{target_duration_seconds}s{source_path.suffix}"
+
+    if output_path.exists():
+        existing_duration = float(_probe_video_metadata(str(output_path))["duration_s"])
+        if existing_duration >= float(target_duration_seconds) - 0.5:
+            _log_progress(
+                log_progress,
+                f"[prepare] reusing existing extended video: {output_path} ({existing_duration:.1f}s)",
+            )
+            return str(output_path)
+
+    _log_progress(
+        log_progress,
+        f"[prepare] building extended video for {source_path} -> {output_path} ({target_duration_seconds}s)",
+    )
+    frames, fps, frame_size = _load_video_frames(str(source_path))
+    target_frame_count = max(1, int(round(float(target_duration_seconds) * fps)))
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        frame_size,
+    )
+    if not writer.isOpened():
+        raise ValueError(f"Failed to open output video for writing: {output_path}")
+
+    try:
+        for frame_idx in range(target_frame_count):
+            writer.write(frames[frame_idx % len(frames)])
+    finally:
+        writer.release()
+
+    _log_progress(
+        log_progress,
+        f"[prepare] wrote extended video: {output_path} ({target_frame_count} frames at {fps:.2f} FPS)",
+    )
+    return str(output_path)
+
+
+def _prepare_benchmark_videos(
+    videos: list[str],
+    *,
+    target_duration_seconds: int,
+    prepared_video_dir: str,
+    log_progress: bool = False,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    if target_duration_seconds <= 0:
+        return videos, []
+
+    output_dir = Path(prepared_video_dir)
+    prepared_videos: list[str] = []
+    prepared_metadata: list[dict[str, Any]] = []
+    for video_path in videos:
+        prepared_path = _build_extended_video(
+            video_path,
+            target_duration_seconds=target_duration_seconds,
+            output_dir=output_dir,
+            log_progress=log_progress,
+        )
+        prepared_videos.append(prepared_path)
+        prepared_metadata.append(
+            {
+                "source_video": video_path,
+                "prepared_video": prepared_path,
+                "prepared_duration_s": _probe_video_metadata(prepared_path)["duration_s"],
+                "preparation_method": "opencv_repeat",
+            }
+        )
+    return prepared_videos, prepared_metadata
 
 
 def _validate_videos(video_paths: Iterable[str]) -> list[str]:
