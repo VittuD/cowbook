@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
 JobStatus = str
+UTC_TZ = getattr(datetime, "UTC", timezone.utc)
 
 
 def utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(UTC_TZ).isoformat()
 
 
 def new_job_id() -> str:
