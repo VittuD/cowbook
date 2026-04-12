@@ -29,8 +29,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --upgrade pip setuptools wheel && \
-    python -m pip install cython ninja && \
+    python -m pip install --upgrade pip wheel && \
+    python -m pip install "setuptools==69.5.1" packaging cython ninja && \
+    python -c "import pkg_resources; import packaging; print(pkg_resources.__file__)" && \
     python -m pip install "transformers==4.41.2" && \
     git clone https://github.com/hkchengrex/Tracking-Anything-with-DEVA.git "${DEVA_REPO}" && \
     git clone https://github.com/hkchengrex/Grounded-Segment-Anything.git "${GSA_REPO}" && \
