@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-      wget ffmpeg libsm6 libxext6 libgl1 libglib2.0-0 git build-essential && \
+      wget ffmpeg libsm6 libxext6 libgl1 libglib2.0-0 git build-essential pkg-config libhdf5-dev && \
     ln -s /usr/local/cuda-11.6 /usr/local/cuda && \
     rm -rf /var/lib/apt/lists/*
 
