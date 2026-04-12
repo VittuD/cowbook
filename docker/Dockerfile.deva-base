@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     find . -name '*.so' -o -name '*_C*' | tee /tmp/groundingdino_ext_paths.txt && \
     test -s /tmp/groundingdino_ext_paths.txt && \
     python -m pip install --no-build-isolation -e . && \
-    python -m pip install "numpy<2" pulp && \
+    python -m pip install "numpy<2" pulp "supervision<0.26" && \
     python -c "import groundingdino; from groundingdino import _C; import groundingdino.models.GroundingDINO.ms_deform_attn as m; print(groundingdino.__file__)" && \
     python -m pip install --no-deps -e "${DEVA_REPO}" && \
     python -c "from transformers import BertModel; from segment_anything import sam_model_registry; from groundingdino import _C; from groundingdino.util.inference import Model; assert hasattr(BertModel, 'get_head_mask')"
