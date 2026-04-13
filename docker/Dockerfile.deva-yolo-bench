@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1.7
+ARG DEVA_BASE_IMAGE=cowbook-deva-base
+FROM ${DEVA_BASE_IMAGE}
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+COPY pyproject.toml readme.md /app/
+COPY src /app/src
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install "numpy<2" "ultralytics==8.4.34" lap opencv-python-headless orjson tqdm && \
+    python -m pip install --no-deps -e . && \
+    python -c "import torch; import ultralytics; from ultralytics import YOLO; from groundingdino import _C"
+
+COPY --chown=cowbook:cowbook assets /app/assets
+COPY --chown=cowbook:cowbook sample_data/videos /app/sample_data/videos
+COPY --chown=cowbook:cowbook tools /app/tools
+
+USER cowbook
+
+ENTRYPOINT ["python", "-m", "tools.benchmark_deva_yolo_tracking"]
+CMD ["--videos", "sample_data/videos/Ch1_60.mp4", "sample_data/videos/Ch4_60.mp4", "sample_data/videos/Ch6_60.mp4", "sample_data/videos/Ch8_60.mp4", "--extend-seconds", "300", "--prepared-video-dir", "/scratch/vet/var/benchmarks/prepared_videos_deva_yolo_300s", "--prepared-frame-dir", "/scratch/vet/var/benchmarks/prepared_frames_deva_yolo_300s", "--prepared-mask-dir", "/scratch/vet/var/benchmarks/prepared_masks_deva_yolo_300s", "--output-root", "/scratch/vet/var/benchmarks/deva_yolo_tracking_300s", "--log-progress"]
