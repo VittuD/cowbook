@@ -94,8 +94,10 @@ def test_write_detection_artifacts_for_result_exports_png_and_json(tmp_path: Pat
     count = module._write_detection_artifacts_for_result(result=FakeResult(), masks_dir=tmp_path)
 
     assert count == 2
-    encoded = cv2.imread(str(tmp_path / "0000000.png"), cv2.IMREAD_COLOR)
+    encoded = cv2.imread(str(tmp_path / "0000000.png"), cv2.IMREAD_GRAYSCALE)
     assert encoded is not None
+    nonzero = encoded[encoded != 0]
+    assert np.unique(nonzero).tolist() == [1, 2]
     segments = json.loads((tmp_path / "0000000.json").read_text(encoding="utf-8"))
     assert segments == [
         {"id": 1, "category_id": 1, "score": 0.7},

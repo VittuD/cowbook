@@ -127,21 +127,13 @@ def _ordered_mask_indices(confidences: np.ndarray, count: int) -> list[int]:
     return list(np.argsort(confidences.astype(np.float32)))
 
 
-def _encode_label_mask_rgb(mask: np.ndarray) -> np.ndarray:
-    encoded = np.zeros((*mask.shape, 3), dtype=np.uint8)
-    encoded[..., 0] = (mask & 255).astype(np.uint8)
-    encoded[..., 1] = ((mask >> 8) & 255).astype(np.uint8)
-    encoded[..., 2] = ((mask >> 16) & 255).astype(np.uint8)
-    return encoded
-
-
 def _mask_payload_from_result(result) -> tuple[np.ndarray, list[dict[str, float | int]]]:
     orig_shape = getattr(result, "orig_shape", None)
     if orig_shape is None or len(orig_shape) < 2:
         raise ValueError("YOLO segmentation result is missing orig_shape.")
     height = int(orig_shape[0])
     width = int(orig_shape[1])
-    label_mask = np.zeros((height, width), dtype=np.int32)
+    label_mask = np.zeros((height, width), dtype=np.uint8)
 
     masks = getattr(result, "masks", None)
     boxes = getattr(result, "boxes", None)
@@ -165,7 +157,9 @@ def _mask_payload_from_result(result) -> tuple[np.ndarray, list[dict[str, float 
         active = binary_mask > 0.5
         if not np.any(active):
             continue
-        label_mask[active] = next_id
+        if next_id > 255:
+            raise ValueError("Per-frame YOLO instance count exceeds 255; grayscale DEVA mask export is insufficient.")
+        label_mask[active] = np.uint8(next_id)
         score = float(confidences[raw_index]) if raw_index < confidences.shape[0] else 1.0
         segments_info.append(
             {
@@ -182,13 +176,11 @@ def _mask_payload_from_result(result) -> tuple[np.ndarray, list[dict[str, float 
 def _write_detection_artifacts_for_result(*, result, masks_dir: Path) -> int:
     frame_stem = Path(str(result.path)).stem
     label_mask, segments_info = _mask_payload_from_result(result)
-    rgb_mask = _encode_label_mask_rgb(label_mask)
     png_path = masks_dir / f"{frame_stem}.png"
     json_path = masks_dir / f"{frame_stem}.json"
 
     masks_dir.mkdir(parents=True, exist_ok=True)
-    bgr_mask = cv2.cvtColor(rgb_mask, cv2.COLOR_RGB2BGR)
-    if not cv2.imwrite(str(png_path), bgr_mask):
+    if not cv2.imwrite(str(png_path), label_mask):
         raise ValueError(f"Failed to write YOLO mask PNG: {png_path}")
     json_path.write_text(json.dumps(segments_info), encoding="utf-8")
     return len(segments_info)
