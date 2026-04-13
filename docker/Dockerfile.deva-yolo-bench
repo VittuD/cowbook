@@ -13,11 +13,18 @@ COPY src /app/src
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install "numpy<2" "ultralytics==8.4.34" lap opencv-python-headless orjson tqdm && \
     python -m pip install --no-deps -e . && \
-    python -c "import torch; import ultralytics; from ultralytics import YOLO; from groundingdino import _C"
+    python -c "import torch; import ultralytics; from ultralytics import YOLO; from groundingdino import _C" && \
+    mkdir -p /app/var /scratch/vet /home/cowbook/.cache /home/cowbook/.config/Ultralytics && \
+    chown -R cowbook:cowbook /app/var /scratch/vet /home/cowbook
 
 COPY --chown=cowbook:cowbook assets /app/assets
 COPY --chown=cowbook:cowbook sample_data/videos /app/sample_data/videos
 COPY --chown=cowbook:cowbook tools /app/tools
+
+ENV HOME=/home/cowbook \
+    XDG_CACHE_HOME=/home/cowbook/.cache \
+    YOLO_CONFIG_DIR=/home/cowbook/.config/Ultralytics \
+    TORCHINDUCTOR_CACHE_DIR=/home/cowbook/.cache/torchinductor
 
 USER cowbook
 
