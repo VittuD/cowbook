@@ -315,6 +315,43 @@ def build_camera_model(
     return CameraModel(spec=spec, optimal_mtx=np.asarray(optimal_mtx, dtype=np.float64))
 
 
+def scale_camera_spec(
+    spec: CameraCalibrationSpec,
+    image_size: tuple[int, int],
+    *,
+    scale_reference_points: bool = True,
+) -> CameraCalibrationSpec:
+    target_width, target_height = int(image_size[0]), int(image_size[1])
+    source_width, source_height = int(spec.image_size[0]), int(spec.image_size[1])
+    if (target_width, target_height) == (source_width, source_height):
+        return spec
+
+    sx = float(target_width) / float(source_width)
+    sy = float(target_height) / float(source_height)
+
+    scaled_camera_matrix = np.asarray(spec.camera_matrix, dtype=np.float64).copy()
+    scaled_camera_matrix[0, :] *= sx
+    scaled_camera_matrix[1, :] *= sy
+    scaled_camera_matrix[2, :] = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
+
+    scaled_reference_points = spec.reference_points
+    if scale_reference_points and spec.reference_points is not None:
+        scaled_image_points = np.asarray(spec.reference_points.image_points, dtype=np.float32).copy()
+        scaled_image_points[:, 0] *= np.float32(sx)
+        scaled_image_points[:, 1] *= np.float32(sy)
+        scaled_reference_points = CameraCorrespondences(
+            image_points=scaled_image_points,
+            object_points=np.asarray(spec.reference_points.object_points, dtype=np.float32).copy(),
+        )
+
+    return replace(
+        spec,
+        image_size=(target_width, target_height),
+        camera_matrix=scaled_camera_matrix,
+        reference_points=scaled_reference_points,
+    )
+
+
 @lru_cache(maxsize=None)
 def load_camera_setup(
     camera_nr: int | None = None,
@@ -365,6 +402,43 @@ def undistort_points_with_model(
             P=camera_model.optimal_mtx,
         )
     return undistorted_points.reshape(-1, 2)
+
+
+def build_undistort_maps(
+    camera_model: CameraModel,
+    *,
+    m1type: int = cv.CV_16SC2,
+) -> tuple[NDArray[np.float32] | NDArray[np.int16], NDArray[np.float32] | NDArray[np.uint16]]:
+    width, height = camera_model.image_size
+    if camera_model.model_type == "pinhole":
+        return cv.initUndistortRectifyMap(
+            camera_model.mtx,
+            camera_model.dist,
+            None,
+            camera_model.optimal_mtx,
+            (width, height),
+            m1type,
+        )
+    return cv.fisheye.initUndistortRectifyMap(
+        camera_model.mtx,
+        camera_model.dist,
+        np.eye(3),
+        camera_model.optimal_mtx,
+        (width, height),
+        m1type,
+    )
+
+
+def undistort_image_with_model(
+    image: NDArray[np.uint8],
+    camera_model: CameraModel,
+    *,
+    maps: tuple[NDArray[np.float32] | NDArray[np.int16], NDArray[np.float32] | NDArray[np.uint16]] | None = None,
+    interpolation: int = cv.INTER_LINEAR,
+    border_mode: int = cv.BORDER_CONSTANT,
+) -> NDArray[np.uint8]:
+    map1, map2 = maps or build_undistort_maps(camera_model)
+    return cv.remap(image, map1, map2, interpolation=interpolation, borderMode=border_mode)
 
 
 def undistort_points(

@@ -153,3 +153,36 @@ def test_fisheye_camera_model_and_undistortion_path():
     assert camera_model.model_type == "fisheye"
     assert undistorted.shape == (2, 2)
     assert np.isfinite(undistorted).all()
+
+
+def test_scale_camera_spec_scales_intrinsics_and_reference_points():
+    spec = calibration.CameraCalibrationSpec(
+        camera_nr=1,
+        model_type="pinhole",
+        image_size=(100, 50),
+        camera_matrix=np.array(
+            [[40.0, 0.0, 30.0], [0.0, 20.0, 10.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ),
+        dist_coeff=np.zeros((1, 5), dtype=np.float64),
+        reference_points=calibration.CameraCorrespondences(
+            image_points=np.array([[10.0, 5.0], [20.0, 10.0]], dtype=np.float32),
+            object_points=np.array([[0.0, 0.0, 100.0], [10.0, 0.0, 100.0]], dtype=np.float32),
+        ),
+    )
+
+    scaled = calibration.scale_camera_spec(spec, (200, 100))
+
+    np.testing.assert_allclose(
+        scaled.camera_matrix,
+        np.array(
+            [[80.0, 0.0, 60.0], [0.0, 40.0, 20.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ),
+    )
+    assert scaled.image_size == (200, 100)
+    assert scaled.reference_points is not None
+    np.testing.assert_allclose(
+        scaled.reference_points.image_points,
+        np.array([[20.0, 10.0], [40.0, 20.0]], dtype=np.float32),
+    )
