@@ -12,6 +12,8 @@ def test_main_offsets_chunk_frame_ids_and_writes_outputs(tmp_path: Path, monkeyp
     input_dir.mkdir()
     first = input_dir / "Ch1_part_000_sam3_tracking.json"
     second = input_dir / "Ch1_part_001_sam3_tracking.json"
+    first_summary = input_dir / "Ch1_part_000_sam3_export_summary.json"
+    second_summary = input_dir / "Ch1_part_001_sam3_export_summary.json"
     first.write_text(
         '{"frames":[{"frame_id":0,"detections":{"xyxy":[[0,0,2,2]]},"labels":[{"class_id":0,"id":11}]}]}',
         encoding="utf-8",
@@ -23,9 +25,11 @@ def test_main_offsets_chunk_frame_ids_and_writes_outputs(tmp_path: Path, monkeyp
         "]}",
         encoding="utf-8",
     )
+    first_summary.write_text('{"width":4,"height":4}', encoding="utf-8")
+    second_summary.write_text('{"width":4,"height":4}', encoding="utf-8")
 
     def fake_process_centroids(json_file, camera_nr, calibration_file, cancellation_token=None, show_progress=True):
-        if json_file == str(first):
+        if Path(json_file).name.startswith("Ch1_part_000"):
             return [
                 {
                     "frame_id": 0,
@@ -61,6 +65,11 @@ def test_main_offsets_chunk_frame_ids_and_writes_outputs(tmp_path: Path, monkeyp
     monkeypatch.setattr(module, "plot_combined_projected_centroids", fake_plot_combined_projected_centroids)
     monkeypatch.setattr(module, "create_video_from_images", fake_create_video_from_images)
     monkeypatch.setattr(
+        module,
+        "resolve_camera_spec",
+        lambda camera_nr, calibration_file=None: type("Spec", (), {"image_size": (8, 8)})(),
+    )
+    monkeypatch.setattr(
         sys,
         "argv",
         [
@@ -82,17 +91,30 @@ def test_main_offsets_chunk_frame_ids_and_writes_outputs(tmp_path: Path, monkeyp
     assert summary["chunks"] == [
         {
             "tracking_json_path": str(first),
+            "projection_input_json_path": str(tmp_path / "out" / "json" / "Ch1_part_000_sam3_tracking_projection_input.json"),
             "processed_json_path": str(tmp_path / "out" / "json" / "Ch1_part_000_sam3_tracking_processed.json"),
             "frame_offset": 0,
             "frame_count": 1,
+            "scale_info": {
+                "source_frame_size": [4, 4],
+                "calibration_image_size": [8, 8],
+            },
         },
         {
             "tracking_json_path": str(second),
+            "projection_input_json_path": str(tmp_path / "out" / "json" / "Ch1_part_001_sam3_tracking_projection_input.json"),
             "processed_json_path": str(tmp_path / "out" / "json" / "Ch1_part_001_sam3_tracking_processed.json"),
             "frame_offset": 1,
             "frame_count": 2,
+            "scale_info": {
+                "source_frame_size": [4, 4],
+                "calibration_image_size": [8, 8],
+            },
         },
     ]
+
+    first_projection_input = load_path(tmp_path / "out" / "json" / "Ch1_part_000_sam3_tracking_projection_input.json")
+    assert first_projection_input["frames"][0]["detections"]["xyxy"] == [[0.0, 0.0, 4.0, 4.0]]
 
     merged_tracking = load_path(tmp_path / "out" / "json" / "merged_sam3_tracking_global.json")
     assert [frame["frame_id"] for frame in merged_tracking["frames"]] == [0, 1, 2]
