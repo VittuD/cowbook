@@ -12,6 +12,7 @@ WORKDIR /app
 
 COPY pyproject.toml readme.md /app/
 COPY src /app/src
+COPY assets /app/assets
 
 RUN python -m pip install --upgrade pip && \
     python -m pip install git+https://github.com/ultralytics/CLIP.git && \
