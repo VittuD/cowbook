@@ -14,6 +14,17 @@ def _to_optional_float_list(values: list[Any] | None) -> list[float] | None:
     return [float(v) for v in values]
 
 
+def _to_optional_image_size(values: list[Any] | tuple[Any, ...] | None) -> tuple[int, int] | None:
+    if values is None:
+        return None
+    if len(values) != 2:
+        raise ValueError(f"image size must contain [width, height], got {values!r}")
+    size = (int(values[0]), int(values[1]))
+    if size[0] <= 0 or size[1] <= 0:
+        raise ValueError(f"image size values must be positive, got {values!r}")
+    return size
+
+
 @dataclass(slots=True)
 class VideoGroupItem:
     path: str
@@ -147,14 +158,10 @@ class TrackingCleanupConfig:
                 float(data["max_area_px"]) if data.get("max_area_px") is not None else None
             ),
             min_area_ratio=(
-                float(data["min_area_ratio"])
-                if data.get("min_area_ratio") is not None
-                else None
+                float(data["min_area_ratio"]) if data.get("min_area_ratio") is not None else None
             ),
             max_area_ratio=(
-                float(data["max_area_ratio"])
-                if data.get("max_area_ratio") is not None
-                else None
+                float(data["max_area_ratio"]) if data.get("max_area_ratio") is not None else None
             ),
             min_mask_fill_ratio=(
                 float(data["min_mask_fill_ratio"])
@@ -186,9 +193,7 @@ class TrackingCleanupConfig:
             postprocess_smoothing=bool(data.get("postprocess_smoothing", False)),
             smoothing_alpha=float(data.get("smoothing_alpha", 0.65)),
             gap_fill_max_frames=int(data.get("gap_fill_max_frames", 3)),
-            max_center_speed_px_per_frame=float(
-                data.get("max_center_speed_px_per_frame", 80.0)
-            ),
+            max_center_speed_px_per_frame=float(data.get("max_center_speed_px_per_frame", 80.0)),
             max_relative_area_change=float(data.get("max_relative_area_change", 0.80)),
             max_relative_aspect_change=float(data.get("max_relative_aspect_change", 0.80)),
         )
@@ -283,13 +288,30 @@ class TrackingFrame:
 @dataclass(slots=True)
 class TrackingDocument:
     frames: list[TrackingFrame]
+    source_image_size: tuple[int, int] | None = None
+    calibration_image_size: tuple[int, int] | None = None
+    coordinate_space: str | None = None
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any]) -> "TrackingDocument":
-        return cls(frames=[TrackingFrame.from_mapping(frame) for frame in data.get("frames", []) or []])
+        return cls(
+            frames=[TrackingFrame.from_mapping(frame) for frame in data.get("frames", []) or []],
+            source_image_size=_to_optional_image_size(data.get("source_image_size")),
+            calibration_image_size=_to_optional_image_size(data.get("calibration_image_size")),
+            coordinate_space=(
+                str(data["coordinate_space"]) if data.get("coordinate_space") is not None else None
+            ),
+        )
 
     def to_dict(self) -> dict[str, Any]:
-        return {"frames": [frame.to_dict() for frame in self.frames]}
+        out: dict[str, Any] = {"frames": [frame.to_dict() for frame in self.frames]}
+        if self.source_image_size is not None:
+            out["source_image_size"] = list(self.source_image_size)
+        if self.calibration_image_size is not None:
+            out["calibration_image_size"] = list(self.calibration_image_size)
+        if self.coordinate_space is not None:
+            out["coordinate_space"] = self.coordinate_space
+        return out
 
 
 DEFAULT_MASKS = {

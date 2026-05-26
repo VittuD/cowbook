@@ -67,3 +67,41 @@ def test_json_input_smoke_pipeline_generates_outputs(fixtures_dir: Path, tmp_pat
     merged_doc = json.loads(merged_json.read_text())
     assert [frame["frame_id"] for frame in merged_doc["frames"]] == [0, 1, 2]
     assert "projected_centroids" in merged_doc["frames"][0]["detections"]
+
+
+@pytest.mark.smoke
+def test_resized_json_input_records_processed_coordinate_space(fixtures_dir: Path, tmp_path):
+    raw = json.loads((fixtures_dir / "smoke_tracking_ch1_short.json").read_text())
+    raw["source_image_size"] = [1344, 760]
+    for frame in raw["frames"]:
+        frame["detections"]["xyxy"] = [
+            [coordinate / 2.0 for coordinate in box] for box in frame["detections"]["xyxy"]
+        ]
+
+    input_json = tmp_path / "resized_tracking.json"
+    input_json.write_text(json.dumps(raw), encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "calibration_file": "assets/calibration/camera_system.json",
+                "mask_videos": False,
+                "output_image_folder": str(tmp_path / "frames"),
+                "output_video_folder": str(tmp_path / "videos"),
+                "output_json_folder": str(tmp_path / "json"),
+                "create_projection_video": False,
+                "convert_to_csv": False,
+                "num_plot_workers": 0,
+                "video_groups": [[{"path": str(input_json), "camera_nr": 1}]],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _run_pipeline(config_path)
+
+    processed = json.loads((tmp_path / "resized_tracking_processed.json").read_text())
+    assert processed["source_image_size"] == [1344, 760]
+    assert processed["calibration_image_size"] == [2688, 1520]
+    assert processed["coordinate_space"] == "undistorted_calibration_image"
+    assert "projected_centroids" in processed["frames"][0]["detections"]

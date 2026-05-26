@@ -104,7 +104,9 @@ class ProjectionContext:
             rotated_inverse_projected = self.inverse_rotation_matrix @ (
                 self.inverse_camera_matrix @ uv_point
             )
-            scale = (ground_z_cm + self.rotated_translation_vector[2, 0]) / rotated_inverse_projected[2, 0]
+            scale = (
+                ground_z_cm + self.rotated_translation_vector[2, 0]
+            ) / rotated_inverse_projected[2, 0]
             world_point = self.inverse_rotation_matrix @ (
                 (scale * (self.inverse_camera_matrix @ uv_point)) - self.translation_vector
             )
@@ -130,19 +132,28 @@ def _normalize_path(path: str | Path | None, *, default: str) -> str:
     return str(Path(path or default).resolve())
 
 
-def _as_model_type(value: str | None, *, default: CalibrationModelType = "pinhole") -> CalibrationModelType:
+def _as_model_type(
+    value: str | None, *, default: CalibrationModelType = "pinhole"
+) -> CalibrationModelType:
     model_type = str(value or default).lower()
     if model_type not in SUPPORTED_MODEL_TYPES:
         raise ValueError(f"Unsupported calibration model_type: {model_type}")
     return model_type  # type: ignore[return-value]
 
 
-def _as_image_size(value, *, default: tuple[int, int] = DEFAULT_IMAGE_SIZE) -> tuple[int, int]:
+def _as_image_size(
+    value, *, default: tuple[int, int] | None = DEFAULT_IMAGE_SIZE
+) -> tuple[int, int]:
     if value is None:
-        return default
+        if default is None:
+            raise ValueError("Calibration payload requires image_size=[width, height].")
+        value = default
     if len(value) != 2:
         raise ValueError(f"image_size must contain [width, height], got {value!r}")
-    return int(value[0]), int(value[1])
+    image_size = int(value[0]), int(value[1])
+    if image_size[0] <= 0 or image_size[1] <= 0:
+        raise ValueError(f"image_size values must be positive, got {value!r}")
+    return image_size
 
 
 def _as_float_array(value) -> NDArray[np.float64]:
@@ -167,12 +178,15 @@ def _build_spec_from_payload(
     *,
     camera_nr: int | None,
     fallback: CameraCalibrationSpec | None = None,
+    require_image_size: bool = False,
 ) -> CameraCalibrationSpec:
     if fallback is None:
         if "camera_matrix" not in payload or "dist_coeff" not in payload:
             raise ValueError("Calibration payload requires camera_matrix and dist_coeff.")
         model_type = _as_model_type(payload.get("model_type"))
-        image_size = _as_image_size(payload.get("image_size"))
+        image_size = _as_image_size(
+            payload.get("image_size"), default=None if require_image_size else DEFAULT_IMAGE_SIZE
+        )
         camera_matrix = _as_float_array(payload["camera_matrix"])
         dist_coeff = _as_float_array(payload["dist_coeff"])
     else:
@@ -213,9 +227,13 @@ def load_calibration_bundle(calibration_file: str | None = None) -> CalibrationB
 
     if _is_structured_bundle(payload):
         world = _parse_world(payload.get("world"))
-        default_spec = _build_spec_from_payload(payload.get("defaults", {}), camera_nr=None)
+        default_spec = _build_spec_from_payload(
+            payload.get("defaults", {}), camera_nr=None, require_image_size=True
+        )
         cameras = {
-            int(camera_nr): _build_spec_from_payload(camera_payload, camera_nr=int(camera_nr), fallback=default_spec)
+            int(camera_nr): _build_spec_from_payload(
+                camera_payload, camera_nr=int(camera_nr), fallback=default_spec
+            )
             for camera_nr, camera_payload in (payload.get("cameras", {}) or {}).items()
         }
         return CalibrationBundle(world=world, default_spec=default_spec, cameras=cameras)
@@ -321,8 +339,8 @@ def scale_camera_spec(
     *,
     scale_reference_points: bool = True,
 ) -> CameraCalibrationSpec:
-    target_width, target_height = int(image_size[0]), int(image_size[1])
-    source_width, source_height = int(spec.image_size[0]), int(spec.image_size[1])
+    target_width, target_height = _as_image_size(image_size, default=None)
+    source_width, source_height = _as_image_size(spec.image_size, default=None)
     if (target_width, target_height) == (source_width, source_height):
         return spec
 
@@ -336,7 +354,9 @@ def scale_camera_spec(
 
     scaled_reference_points = spec.reference_points
     if scale_reference_points and spec.reference_points is not None:
-        scaled_image_points = np.asarray(spec.reference_points.image_points, dtype=np.float32).copy()
+        scaled_image_points = np.asarray(
+            spec.reference_points.image_points, dtype=np.float32
+        ).copy()
         scaled_image_points[:, 0] *= np.float32(sx)
         scaled_image_points[:, 1] *= np.float32(sy)
         scaled_reference_points = CameraCorrespondences(
@@ -433,7 +453,8 @@ def undistort_image_with_model(
     image: NDArray[np.uint8],
     camera_model: CameraModel,
     *,
-    maps: tuple[NDArray[np.float32] | NDArray[np.int16], NDArray[np.float32] | NDArray[np.uint16]] | None = None,
+    maps: tuple[NDArray[np.float32] | NDArray[np.int16], NDArray[np.float32] | NDArray[np.uint16]]
+    | None = None,
     interpolation: int = cv.INTER_LINEAR,
     border_mode: int = cv.BORDER_CONSTANT,
 ) -> NDArray[np.uint8]:
@@ -466,10 +487,14 @@ def build_projection_context(
     if reference_points is None:
         raise KeyError(f"Camera {camera_nr} has no calibration correspondences.")
 
-    undistorted_reference_points = undistort_points_with_model(
-        reference_points.image_points,
-        camera_model,
-    ).astype(np.int32).astype(np.float32)
+    undistorted_reference_points = (
+        undistort_points_with_model(
+            reference_points.image_points,
+            camera_model,
+        )
+        .astype(np.int32)
+        .astype(np.float32)
+    )
     success, rotation_vector, translation_vector = cv.solvePnP(
         reference_points.object_points,
         undistorted_reference_points,

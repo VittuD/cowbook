@@ -60,20 +60,29 @@ def test_process_and_save_frames_emits_processing_progress(tmp_path, monkeypatch
 
     monkeypatch.setattr("cowbook.vision.frame_processor.os.cpu_count", lambda: 1)
     monkeypatch.setattr(
-        "cowbook.vision.frame_processor.process_centroids",
-        lambda *args, **kwargs: [{"frame_id": 0, "detections": [{"projected_centroid": [1.0, 2.0, 100.0]}]}],
+        "cowbook.vision.frame_processor.process_centroids_with_metadata",
+        lambda *args, **kwargs: (
+            [{"frame_id": 0, "detections": [{"projected_centroid": [1.0, 2.0, 100.0]}]}],
+            {},
+        ),
     )
     monkeypatch.setattr(
         "cowbook.vision.frame_processor.save_frame_data_json",
-        lambda _frames_data, output_json_path: open(output_json_path, "w", encoding="utf-8").write('{"frames": []}'),
+        lambda _frames_data, output_json_path, **_kwargs: open(
+            output_json_path, "w", encoding="utf-8"
+        ).write('{"frames": []}'),
     )
     monkeypatch.setattr(
         "cowbook.vision.frame_processor.extract_projected_centroids_from_files",
         lambda _paths: {0: [[1.0, 2.0, 100.0]], 1: [[3.0, 4.0, 100.0]]},
     )
-    monkeypatch.setattr("cowbook.vision.frame_processor.default_barn_image_path", lambda: "barn.png")
+    monkeypatch.setattr(
+        "cowbook.vision.frame_processor.default_barn_image_path", lambda: "barn.png"
+    )
     monkeypatch.setattr("cowbook.vision.frame_processor.load_barn_image", lambda _path: object())
-    monkeypatch.setattr("cowbook.vision.frame_processor.render_projection_frame", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "cowbook.vision.frame_processor.render_projection_frame", lambda *args, **kwargs: None
+    )
 
     store = InMemoryJobStore()
     reporter = JobReporter(job_id="job-processing", config_path="config.json", observer=store)
@@ -102,17 +111,25 @@ def test_render_frame_worker_reuses_cached_barn_image(monkeypatch, tmp_path):
     calls = []
     frame_processor_module._BARN_IMG = None
     monkeypatch.setattr(frame_processor_module.os.path, "exists", lambda _path: True)
-    monkeypatch.setitem(sys.modules, "cv2", type("FakeCv2", (), {"imread": staticmethod(lambda _path: "barn-image")})())
+    monkeypatch.setitem(
+        sys.modules,
+        "cv2",
+        type("FakeCv2", (), {"imread": staticmethod(lambda _path: "barn-image")})(),
+    )
     monkeypatch.setattr(
         frame_processor_module,
         "render_projection_frame",
-        lambda projected_centroids, frame_id, frame_output_path, barn_image_path, barn_image: calls.append(
-            (frame_id, frame_output_path, barn_image)
+        lambda projected_centroids, frame_id, frame_output_path, barn_image_path, barn_image: (
+            calls.append((frame_id, frame_output_path, barn_image))
         ),
     )
 
-    first = frame_processor_module._render_frame_worker((1, [[1.0, 2.0, 3.0]], str(tmp_path / "a.jpg"), "barn.png"))
-    second = frame_processor_module._render_frame_worker((2, [[4.0, 5.0, 6.0]], str(tmp_path / "b.jpg"), "barn.png"))
+    first = frame_processor_module._render_frame_worker(
+        (1, [[1.0, 2.0, 3.0]], str(tmp_path / "a.jpg"), "barn.png")
+    )
+    second = frame_processor_module._render_frame_worker(
+        (2, [[4.0, 5.0, 6.0]], str(tmp_path / "b.jpg"), "barn.png")
+    )
 
     assert first.endswith("a.jpg")
     assert second.endswith("b.jpg")
@@ -126,16 +143,20 @@ def test_process_centroids_worker_saves_processed_json(monkeypatch, tmp_path):
     saved = {}
     monkeypatch.setattr(
         frame_processor_module,
-        "process_centroids",
-        lambda *args, **kwargs: [{"frame_id": 0, "detections": []}],
+        "process_centroids_with_metadata",
+        lambda *args, **kwargs: ([{"frame_id": 0, "detections": []}], {}),
     )
     monkeypatch.setattr(
         frame_processor_module,
         "save_frame_data_json",
-        lambda frames_data, output_json_path: saved.setdefault("call", (frames_data, output_json_path)),
+        lambda frames_data, output_json_path, **_kwargs: saved.setdefault(
+            "call", (frames_data, output_json_path)
+        ),
     )
 
-    output_path, camera_nr = frame_processor_module._process_centroids_worker((str(source), 4, "calibration.json"))
+    output_path, camera_nr = frame_processor_module._process_centroids_worker(
+        (str(source), 4, "calibration.json")
+    )
 
     assert camera_nr == 4
     assert output_path.endswith("_processed.json")
@@ -167,8 +188,14 @@ def test_process_and_save_frames_parallel_branch_preserves_input_order(tmp_path,
 
     monkeypatch.setattr(frame_processor_module.os, "cpu_count", lambda: 4)
     monkeypatch.setattr(frame_processor_module._fut, "ProcessPoolExecutor", FakeExecutor)
-    monkeypatch.setattr(frame_processor_module, "_process_centroids_worker", lambda args: (args[0].replace(".json", "_processed.json"), args[1]))
-    monkeypatch.setattr(frame_processor_module, "plot_combined_projected_centroids", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        frame_processor_module,
+        "_process_centroids_worker",
+        lambda args: (args[0].replace(".json", "_processed.json"), args[1]),
+    )
+    monkeypatch.setattr(
+        frame_processor_module, "plot_combined_projected_centroids", lambda *args, **kwargs: None
+    )
 
     processed_paths = frame_processor_module.process_and_save_frames(
         [str(input_a), str(input_b)],
@@ -200,10 +227,18 @@ def test_plot_combined_projected_centroids_parallel_branch_emits_progress(tmp_pa
             return future
 
     written = []
-    monkeypatch.setattr(frame_processor_module, "extract_projected_centroids_from_files", lambda _paths: {0: [[1, 2, 3]], 1: [[4, 5, 6]]})
+    monkeypatch.setattr(
+        frame_processor_module,
+        "extract_projected_centroids_from_files",
+        lambda _paths: {0: [[1, 2, 3]], 1: [[4, 5, 6]]},
+    )
     monkeypatch.setattr(frame_processor_module, "default_barn_image_path", lambda: "barn.png")
     monkeypatch.setattr(frame_processor_module._fut, "ProcessPoolExecutor", FakeExecutor)
-    monkeypatch.setattr(frame_processor_module, "_render_frame_worker", lambda item: written.append(item[2]) or item[2])
+    monkeypatch.setattr(
+        frame_processor_module,
+        "_render_frame_worker",
+        lambda item: written.append(item[2]) or item[2],
+    )
 
     store = InMemoryJobStore()
     reporter = JobReporter(job_id="job-render-parallel", config_path="config.json", observer=store)
@@ -226,14 +261,22 @@ def test_process_centroids_projects_centroids(monkeypatch, tmp_path):
     input_json = tmp_path / "tracking.json"
     input_json.write_text('{"frames": []}', encoding="utf-8")
 
-    monkeypatch.setattr(frame_processor_module, "load_camera_setup", lambda *_args, **_kwargs: "camera-model")
+    monkeypatch.setattr(
+        frame_processor_module,
+        "load_camera_setup",
+        lambda *_args, **_kwargs: type("CameraModel", (), {"image_size": (100, 50)})(),
+    )
     monkeypatch.setattr(
         frame_processor_module,
         "load_projection_context",
         lambda *_args, **_kwargs: type(
             "ProjectionContext",
             (),
-            {"project_points_to_ground": lambda self, centroids: [[c[0], c[1], 100.0] for c in centroids]},
+            {
+                "project_points_to_ground": lambda self, centroids: [
+                    [c[0], c[1], 100.0] for c in centroids
+                ]
+            },
         )(),
     )
     monkeypatch.setattr(frame_processor_module, "parse_json", lambda _path: {"frames": []})
@@ -242,7 +285,9 @@ def test_process_centroids_projects_centroids(monkeypatch, tmp_path):
         "extract_data",
         lambda _json: [{"detections": [{"centroid": [1.0, 2.0]}]}],
     )
-    monkeypatch.setattr(frame_processor_module, "process_detections", lambda frame, _camera_model: frame)
+    monkeypatch.setattr(
+        frame_processor_module, "process_detections", lambda frame, _camera_model: frame
+    )
 
     frames_data = frame_processor_module.process_centroids(
         str(input_json),
@@ -252,3 +297,49 @@ def test_process_centroids_projects_centroids(monkeypatch, tmp_path):
     )
 
     assert frames_data[0]["detections"][0]["projected_centroid"] == [1.0, 2.0, 100.0]
+
+
+def test_process_centroids_normalizes_resized_source_coordinates_and_returns_metadata(
+    monkeypatch, tmp_path
+):
+    input_json = tmp_path / "tracking.json"
+    input_json.write_text(
+        '{"source_image_size":[100,50],"frames":[{"frame_id":0,"detections":{"xyxy":[[10,5,20,15]]},"labels":[]}]}',
+        encoding="utf-8",
+    )
+    camera_model = type("CameraModel", (), {"image_size": (200, 100)})()
+
+    monkeypatch.setattr(
+        frame_processor_module, "load_camera_setup", lambda *_args, **_kwargs: camera_model
+    )
+    monkeypatch.setattr(
+        frame_processor_module,
+        "load_projection_context",
+        lambda *_args, **_kwargs: type(
+            "ProjectionContext",
+            (),
+            {
+                "project_points_to_ground": lambda self, centroids: [
+                    [c[0], c[1], 100.0] for c in centroids
+                ]
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        frame_processor_module, "process_detections", lambda frame, _camera_model: frame
+    )
+
+    frames_data, metadata = frame_processor_module.process_centroids_with_metadata(
+        str(input_json),
+        camera_nr=1,
+        calibration_file="calibration.json",
+        show_progress=False,
+    )
+
+    assert frames_data[0]["detections"][0]["bbox"] == [20.0, 10.0, 40.0, 30.0]
+    assert frames_data[0]["detections"][0]["centroid"] == [30.0, 20.0]
+    assert metadata == {
+        "source_image_size": (100, 50),
+        "calibration_image_size": (200, 100),
+        "coordinate_space": "undistorted_calibration_image",
+    }

@@ -1,11 +1,12 @@
-from dataclasses import dataclass
 import concurrent.futures as _fut  # parallel rendering
 import logging
 import math
 import os
+from dataclasses import dataclass
 
 from tqdm import tqdm
 
+from cowbook.core.transforms import scale_tracking_document_xyxy
 from cowbook.execution import CancellationToken, JobReporter, StageProgressReporter
 from cowbook.io.json_utils import dump_path_compact
 from cowbook.vision.calibration import (
@@ -37,6 +38,7 @@ class ProcessedJsonArtifact:
     processed_json_path: str
     camera_nr: int
 
+
 def _render_frame_worker(args):
     """
     Worker that renders a single frame image.
@@ -48,6 +50,7 @@ def _render_frame_worker(args):
     if _BARN_IMG is None:
         if os.path.exists(barn_image_path):
             import cv2 as _cv2
+
             _BARN_IMG = _cv2.imread(barn_image_path)
         else:
             _BARN_IMG = None
@@ -57,14 +60,14 @@ def _render_frame_worker(args):
         frame_id,
         frame_output_path,
         barn_image_path=barn_image_path,
-        barn_image=_BARN_IMG
+        barn_image=_BARN_IMG,
     )
     return frame_output_path
 
 
 def _process_centroids_worker(args):
     json_file_path, camera_nr, calibration_file = args
-    frames_data = process_centroids(
+    frames_data, metadata = process_centroids_with_metadata(
         json_file_path,
         camera_nr,
         calibration_file,
@@ -72,7 +75,7 @@ def _process_centroids_worker(args):
         show_progress=False,
     )
     updated_json_file_path = os.path.join(json_file_path.replace(".json", "_processed.json"))
-    save_frame_data_json(frames_data, updated_json_file_path)
+    save_frame_data_json(frames_data, updated_json_file_path, metadata=metadata)
     return updated_json_file_path, camera_nr
 
 
@@ -154,7 +157,7 @@ def process_and_save_frames_with_metadata(
     else:
         for json_file_path, camera_nr in processing_tasks:
             try:
-                frames_data = process_centroids(
+                frames_data, metadata = process_centroids_with_metadata(
                     json_file_path,
                     camera_nr,
                     calibration_file,
@@ -165,7 +168,7 @@ def process_and_save_frames_with_metadata(
                 processed_json_path = os.path.join(
                     json_file_path.replace(".json", "_processed.json")
                 )
-                save_frame_data_json(frames_data, processed_json_path)
+                save_frame_data_json(frames_data, processed_json_path, metadata=metadata)
                 processed_artifacts.append(
                     _processed_json_artifact(
                         input_json_path=json_file_path,
@@ -200,6 +203,7 @@ def process_and_save_frames_with_metadata(
         )
 
     return processed_artifacts
+
 
 def process_and_save_frames(
     json_file_paths,
@@ -241,6 +245,7 @@ def process_and_save_frames(
         return processed_artifacts
     return [artifact.processed_json_path for artifact in processed_artifacts]
 
+
 def process_centroids(
     json_file,
     camera_nr,
@@ -251,14 +256,40 @@ def process_centroids(
     """
     Process detections from JSON, project centroids, and return the updated data.
     """
+    frames_data, _metadata = process_centroids_with_metadata(
+        json_file,
+        camera_nr,
+        calibration_file,
+        cancellation_token=cancellation_token,
+        show_progress=show_progress,
+    )
+    return frames_data
+
+
+def process_centroids_with_metadata(
+    json_file,
+    camera_nr,
+    calibration_file,
+    cancellation_token: CancellationToken | None = None,
+    show_progress: bool = True,
+):
+    """Process detections and return frames plus processed document coordinate metadata."""
     camera_model = load_camera_setup(camera_nr, calibration_file=calibration_file)
     projection_context = load_projection_context(camera_nr, calibration_file=calibration_file)
 
-    # Load and extract data from the JSON tracking file
     json_data = parse_json(json_file)
+    source_image_size = json_data.get("source_image_size")
+    calibration_image_size = tuple(int(value) for value in camera_model.image_size)
+    if source_image_size is not None:
+        source_image_size = tuple(int(value) for value in source_image_size)
+        if source_image_size != calibration_image_size:
+            json_data = scale_tracking_document_xyxy(
+                json_data,
+                source_size=source_image_size,
+                target_size=calibration_image_size,
+            )
     frames_data = extract_data(json_data)
-    
-    # Process each frame
+
     iterable = (
         tqdm(frames_data, desc=f"Processing frames for camera {camera_nr}", unit="frame")
         if show_progress
@@ -267,26 +298,29 @@ def process_centroids(
     for frame in iterable:
         if cancellation_token is not None:
             cancellation_token.raise_if_cancelled()
-        # Step 1: Undistort detections and centroids
         frame = process_detections(frame, camera_model)
-        
-        # Step 2: Project centroids to the ground plane
         projected_centroids = projection_context.project_points_to_ground(
             [detection["centroid"] for detection in frame["detections"]],
         )
-        
-        # Step 3: Add projected centroids to each detection and prepare for JSON output
         for detection, projected_centroid in zip(frame["detections"], projected_centroids):
             detection["projected_centroid"] = projected_centroid
 
-    return frames_data
+    metadata = {
+        "calibration_image_size": calibration_image_size,
+        "coordinate_space": "undistorted_calibration_image",
+    }
+    if source_image_size is not None:
+        metadata["source_image_size"] = source_image_size
+    return frames_data, metadata
 
-def save_frame_data_json(frames_data, output_json_path):
+
+def save_frame_data_json(frames_data, output_json_path, *, metadata=None):
     """
     Save updated frame data with projected centroids to a new JSON file.
     """
-    frames_data_json = reconstruct_json(frames_data)
+    frames_data_json = reconstruct_json(frames_data, **(metadata or {}))
     dump_path_compact(output_json_path, frames_data_json)
+
 
 def plot_combined_projected_centroids(
     json_file_paths,
@@ -346,7 +380,10 @@ def plot_combined_projected_centroids(
     if num_workers and num_workers > 0:
         # Use processes (safe for OpenCV; each proc caches barn image once)
         with _fut.ProcessPoolExecutor(max_workers=num_workers) as ex:
-            future_map = {ex.submit(_render_frame_worker, item): idx for idx, item in enumerate(items, start=1)}
+            future_map = {
+                ex.submit(_render_frame_worker, item): idx
+                for idx, item in enumerate(items, start=1)
+            }
             completed = 0
             for future in _fut.as_completed(future_map):
                 if cancellation_token is not None:

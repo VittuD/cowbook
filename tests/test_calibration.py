@@ -113,7 +113,12 @@ def test_structured_bundle_supports_per_camera_override(tmp_path):
                         "image_size": [64, 48],
                         "dist_coeff": [[0.0], [0.0], [0.0], [0.0]],
                         "reference_points": {
-                            "image_points": [[10.0, 10.0], [20.0, 20.0], [30.0, 30.0], [40.0, 40.0]],
+                            "image_points": [
+                                [10.0, 10.0],
+                                [20.0, 20.0],
+                                [30.0, 30.0],
+                                [40.0, 40.0],
+                            ],
                             "object_points": [
                                 [0.0, 0.0, 100.0],
                                 [100.0, 0.0, 100.0],
@@ -135,6 +140,39 @@ def test_structured_bundle_supports_per_camera_override(tmp_path):
     assert spec.reference_points.image_points.shape == (4, 2)
 
 
+def test_structured_bundle_requires_explicit_positive_image_size(tmp_path):
+    missing_size_path = tmp_path / "missing_size.json"
+    missing_size_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "defaults": {
+                    "camera_matrix": [[50.0, 0.0, 50.0], [0.0, 50.0, 40.0], [0.0, 0.0, 1.0]],
+                    "dist_coeff": [[0.0, 0.0, 0.0, 0.0]],
+                },
+            }
+        )
+    )
+    invalid_size_path = tmp_path / "invalid_size.json"
+    invalid_size_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "defaults": {
+                    "image_size": [0, 80],
+                    "camera_matrix": [[50.0, 0.0, 50.0], [0.0, 50.0, 40.0], [0.0, 0.0, 1.0]],
+                    "dist_coeff": [[0.0, 0.0, 0.0, 0.0]],
+                },
+            }
+        )
+    )
+
+    with np.testing.assert_raises(ValueError):
+        calibration.load_calibration_bundle(str(missing_size_path))
+    with np.testing.assert_raises(ValueError):
+        calibration.load_calibration_bundle(str(invalid_size_path))
+
+
 def test_fisheye_camera_model_and_undistortion_path():
     spec = calibration.CameraCalibrationSpec(
         camera_nr=9,
@@ -148,7 +186,9 @@ def test_fisheye_camera_model_and_undistortion_path():
     )
 
     camera_model = calibration.build_camera_model(spec)
-    undistorted = calibration.undistort_points_with_model([[12.0, 13.0], [20.0, 22.0]], camera_model)
+    undistorted = calibration.undistort_points_with_model(
+        [[12.0, 13.0], [20.0, 22.0]], camera_model
+    )
 
     assert camera_model.model_type == "fisheye"
     assert undistorted.shape == (2, 2)

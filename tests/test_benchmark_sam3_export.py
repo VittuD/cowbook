@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-
 from tools import benchmark_sam3_export as module
 
 
@@ -19,9 +18,10 @@ def test_build_tracking_document_preserves_ids_and_centroids():
         masks=np.zeros((1, 8, 8), dtype=np.uint8),
     )
 
-    document = module._build_tracking_document([frame]).to_dict()
+    document = module._build_tracking_document([frame], source_image_size=(8, 8)).to_dict()
 
     assert document == {
+        "source_image_size": [8, 8],
         "frames": [
             {
                 "frame_id": 3,
@@ -39,7 +39,7 @@ def test_build_tracking_document_preserves_ids_and_centroids():
                     }
                 ],
             }
-        ]
+        ],
     }
 
 
@@ -138,5 +138,6 @@ def test_run_export_for_video_writes_summary_and_tracking(monkeypatch, tmp_path:
     assert Path(result.summary_json_path).exists()
     assert Path(result.tracking_json_path).exists()
     tracking_doc = json.loads(Path(result.tracking_json_path).read_text(encoding="utf-8"))
+    assert tracking_doc["source_image_size"] == [32, 24]
     assert len(tracking_doc["frames"]) == 2
     assert sorted((Path(result.masks_dir)).glob("*.npz"))
