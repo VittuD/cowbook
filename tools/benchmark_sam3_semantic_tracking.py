@@ -4,7 +4,7 @@ import argparse
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import cv2
 import numpy as np
@@ -355,8 +355,7 @@ def _collect_runtime_info(model_path: str, device: str | None) -> dict[str, Any]
     }
 
 
-def _color_for_detection(track_id: int | None, class_id: int | None, index: int) -> tuple[int, int, int]:
-    seed = track_id if track_id is not None and track_id >= 0 else (class_id if class_id is not None else index)
+def _color_from_seed(seed: int) -> tuple[int, int, int]:
     value = int(seed) * 2654435761 % (1 << 32)
     return (
         48 + int((value >> 16) & 0x7F),
@@ -365,7 +364,21 @@ def _color_for_detection(track_id: int | None, class_id: int | None, index: int)
     )
 
 
-def _draw_mask_overlay(image: np.ndarray, frame: Sam3FrameArtifacts, alpha: float = 0.45) -> np.ndarray:
+def _color_for_detection(track_id: int | None, class_id: int | None, index: int) -> tuple[int, int, int]:
+    seed = track_id if track_id is not None and track_id >= 0 else (class_id if class_id is not None else index)
+    return _color_from_seed(seed)
+
+
+ColorForDetection = Callable[[int | None, int | None, int], tuple[int, int, int]]
+
+
+def _draw_mask_overlay(
+    image: np.ndarray,
+    frame: Sam3FrameArtifacts,
+    alpha: float = 0.45,
+    *,
+    color_for_detection: ColorForDetection = _color_for_detection,
+) -> np.ndarray:
     rendered = image.copy()
     if frame.masks.shape[0] == 0:
         return rendered
@@ -373,7 +386,7 @@ def _draw_mask_overlay(image: np.ndarray, frame: Sam3FrameArtifacts, alpha: floa
     for index, packed in enumerate(frame.masks):
         track_id = int(frame.object_ids[index]) if frame.object_ids.size else None
         class_id = int(frame.cls[index]) if frame.cls.size else None
-        _blend_packed_mask(overlay, packed, _color_for_detection(track_id, class_id, index))
+        _blend_packed_mask(overlay, packed, color_for_detection(track_id, class_id, index))
     return cv2.addWeighted(rendered, 1.0 - alpha, overlay, alpha, 0.0)
 
 
@@ -409,8 +422,11 @@ def _draw_processed_frames(
     frame: Sam3FrameArtifacts,
     *,
     prompts: list[str],
+    color_for_detection: ColorForDetection = _color_for_detection,
 ) -> tuple[np.ndarray, np.ndarray]:
-    clean_frame = _overlay_prompt_text(_draw_mask_overlay(frame.orig_img, frame), prompts)
+    clean_frame = _overlay_prompt_text(
+        _draw_mask_overlay(frame.orig_img, frame, color_for_detection=color_for_detection), prompts
+    )
     detailed_frame = clean_frame.copy()
     for index, xyxy in enumerate(frame.xyxy):
         track_id = int(frame.object_ids[index]) if frame.object_ids.size and int(frame.object_ids[index]) >= 0 else None
@@ -427,7 +443,7 @@ def _draw_processed_frames(
             detailed_frame,
             xyxy,
             " ".join(label_parts),
-            _color_for_detection(track_id, class_id, index),
+            color_for_detection(track_id, class_id, index),
         )
     return detailed_frame, clean_frame
 
