@@ -37,6 +37,7 @@ class Sam3VideoRunResult:
     clean_annotated_video_path: str
     processed_annotated_video_path: str
     processed_clean_annotated_video_path: str
+    tracking_json_path: str
     summary_json_path: str
     elapsed_s: float
     frame_count: int
@@ -747,6 +748,7 @@ def _run_semantic_tracking_for_video(
     clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_clean.mp4"
     processed_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed.mp4"
     processed_clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed_clean.mp4"
+    tracking_json_path = json_dir / f"{stem}_sam3_tracking.json"
     summary_json_path = json_dir / f"{stem}_sam3_summary.json"
 
     predictor = SAM3VideoSemanticPredictor(
@@ -843,6 +845,9 @@ def _run_semantic_tracking_for_video(
             f"elapsed_s={cleanup_elapsed_s:.2f}"
         ),
     )
+    tracking_document = _build_tracking_document(processed_frames)
+    dump_path_compact(tracking_json_path, tracking_document.to_dict())
+    _log_progress(log_progress, f"[sam3] tracking annotations written: {video_path} -> {tracking_json_path}")
     processed_mean_instances = 0.0
     processed_max_instances = 0
     processed_tracked_ids: list[int] = []
@@ -872,6 +877,7 @@ def _run_semantic_tracking_for_video(
         "clean_annotated_video_path": str(clean_annotated_video_path),
         "processed_annotated_video_path": str(processed_annotated_video_path),
         "processed_clean_annotated_video_path": str(processed_clean_annotated_video_path),
+        "tracking_json_path": str(tracking_json_path),
         "elapsed_s": elapsed_s,
         "frame_count": frame_count,
         "fps": fps,
@@ -906,6 +912,7 @@ def _run_semantic_tracking_for_video(
         clean_annotated_video_path=str(clean_annotated_video_path),
         processed_annotated_video_path=str(processed_annotated_video_path),
         processed_clean_annotated_video_path=str(processed_clean_annotated_video_path),
+        tracking_json_path=str(tracking_json_path),
         summary_json_path=str(summary_json_path),
         elapsed_s=elapsed_s,
         frame_count=frame_count,
