@@ -4,10 +4,10 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from tools import undistort_videos as module
 
 from cowbook.io.json_utils import load_path
 from cowbook.vision import calibration
-from tools import undistort_videos as module
 
 
 def test_main_undistorts_folder_and_scales_calibration(tmp_path: Path, monkeypatch):

@@ -9,7 +9,6 @@ import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 import cv2
 import numpy as np

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from tools import benchmark_sam3_semantic_tracking as module
 
 

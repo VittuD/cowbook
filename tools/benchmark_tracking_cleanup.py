@@ -8,8 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from cowbook.io.video_processor import create_video_from_images
 from cowbook.io.json_utils import dump_path_compact, dumps_pretty, load_path
+from cowbook.io.video_processor import create_video_from_images
 from cowbook.vision.frame_processor import process_and_save_frames
 from cowbook.vision.tracking import track_video_with_yolo
 from tools.benchmark_tracking import _prepare_benchmark_videos, _query_gpu_info

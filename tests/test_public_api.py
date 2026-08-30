@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 
-import cowbook
 import pytest
+
+import cowbook
 from cowbook import runtime
 
 

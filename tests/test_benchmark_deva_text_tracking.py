@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from tools import benchmark_deva_text_tracking as module
 
 

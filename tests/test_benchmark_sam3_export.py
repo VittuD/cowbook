@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-
 from tools import benchmark_sam3_export as module
 
 

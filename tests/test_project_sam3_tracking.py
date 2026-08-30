@@ -3,8 +3,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from cowbook.io.json_utils import load_path
 from tools import project_sam3_tracking as module
+
+from cowbook.io.json_utils import load_path
 
 
 def test_main_offsets_chunk_frame_ids_and_writes_outputs(tmp_path: Path, monkeypatch):

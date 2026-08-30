@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from tools import benchmark_tensorrt_concurrency as module
 
 

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from tools import benchmark_tracking_backends as module
 
 

@@ -41,13 +41,13 @@ import os
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from cowbook.core.contracts import TrackingDocument
-from cowbook.io.json_utils import load_path
 from cowbook.core.transforms import (
     bbox_wh_area,
     centroid_from_xyxy,
     iter_csv_rows,
     normalize_labels_len,
 )
+from cowbook.io.json_utils import load_path
 
 logger = logging.getLogger(__name__)
 

@@ -7,7 +7,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
-
 from tools import benchmark_deva_yolo_tracking as module
 
 

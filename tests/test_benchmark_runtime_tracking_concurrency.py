@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from tools import benchmark_runtime_tracking_concurrency as module
 
 

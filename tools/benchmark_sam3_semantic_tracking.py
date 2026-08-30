@@ -27,7 +27,11 @@ from cowbook.vision.cleanup import (
     iou_nms_xyxy,
     point_in_poly,
 )
-from tools.benchmark_tracking import _prepare_benchmark_videos, _probe_video_metadata, _query_gpu_info
+from tools.benchmark_tracking import (
+    _prepare_benchmark_videos,
+    _probe_video_metadata,
+    _query_gpu_info,
+)
 
 
 @dataclass(slots=True)

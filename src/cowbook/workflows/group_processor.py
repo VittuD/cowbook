@@ -1,9 +1,9 @@
-from dataclasses import dataclass
 import logging
 import multiprocessing as _mp_std
 import multiprocessing as mp
 import os
 import time
+from dataclasses import dataclass
 from queue import Empty
 from typing import Iterable, List, Tuple
 

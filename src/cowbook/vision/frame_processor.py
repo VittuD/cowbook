@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 import concurrent.futures as _fut  # parallel rendering
 import logging
 import math
 import os
+from dataclasses import dataclass
 
 from tqdm import tqdm
 
