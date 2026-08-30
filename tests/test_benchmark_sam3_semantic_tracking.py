@@ -81,6 +81,10 @@ def test_frame_summary_accepts_list_names():
 
 
 def test_select_cleanup_keep_indices_applies_mask_fill_ratio():
+    full_masks = [
+        np.pad(np.ones((8, 8), dtype=np.uint8), ((4, 28), (4, 28))),
+        np.pad(np.ones((2, 2), dtype=np.uint8), ((20, 18), (20, 18))),
+    ]
     frame = module.Sam3FrameArtifacts(
         frame_index=0,
         orig_img=np.zeros((40, 40, 3), dtype=np.uint8),
@@ -96,13 +100,9 @@ def test_select_cleanup_keep_indices_applies_mask_fill_ratio():
         conf=np.asarray([0.9, 0.9], dtype=np.float32),
         cls=np.asarray([0, 0], dtype=np.int32),
         object_ids=np.asarray([1, 2], dtype=np.int32),
-        masks=np.asarray(
-            [
-                np.pad(np.ones((8, 8), dtype=np.uint8), ((4, 28), (4, 28))),
-                np.pad(np.ones((2, 2), dtype=np.uint8), ((20, 18), (20, 18))),
-            ],
-            dtype=np.uint8,
-        ),
+        # Masks are stored packed (cropped to their tight bounding box), the
+        # same representation `_extract_frame_artifacts` produces.
+        masks=module._as_object_array([module._pack_mask(mask) for mask in full_masks]),
     )
     cleanup = module.TrackingCleanupConfig.from_mapping(
         {

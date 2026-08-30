@@ -241,6 +241,56 @@ def _frame_summary(frame_index: int, result) -> dict[str, Any]:
     }
 
 
+def _pack_mask(mask: np.ndarray) -> tuple[int, int, int, int, np.ndarray] | None:
+    """Crop a full-frame binary mask down to its tight bounding box.
+
+    A SAM3 instance mask is a full-frame (H, W) binary map that is almost
+    entirely background: a cow's footprint is typically a few hundred
+    pixels wide against a multi-megapixel frame. Storing and compositing
+    those full-frame arrays for every instance in every frame of a video
+    dominates both memory and CPU cost. Packing to the tight bounding box
+    of the mask's true pixels loses nothing (every True pixel is inside
+    the returned crop) while cutting the stored/composited footprint by
+    roughly (frame area / instance area), often 1-2 orders of magnitude.
+    Returns None for an empty (all-zero) mask.
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0:
+        return None
+    y0, y1 = int(ys.min()), int(ys.max()) + 1
+    x0, x1 = int(xs.min()), int(xs.max()) + 1
+    return (x0, y0, x1 - x0, y1 - y0, mask[y0:y1, x0:x1].copy())
+
+
+def _as_object_array(items: list[Any]) -> np.ndarray:
+    """Build a 1-D object array from a list of packed-mask records.
+
+    ``np.array(items, dtype=object)`` collapses into an (N, 5) array
+    instead of an (N,) array of tuples whenever every item is a same-length
+    tuple (which happens whenever no mask in the frame is empty) — an
+    inference quirk of ``np.array``, not something to depend on. Assigning
+    by index sidesteps it and always yields a flat (N,) array of objects.
+    """
+    array = np.empty(len(items), dtype=object)
+    for index, item in enumerate(items):
+        array[index] = item
+    return array
+
+
+def _packed_mask_pixel_count(packed: tuple[int, int, int, int, np.ndarray] | None) -> int:
+    if packed is None:
+        return 0
+    return int(np.count_nonzero(packed[4]))
+
+
+def _blend_packed_mask(overlay: np.ndarray, packed: tuple[int, int, int, int, np.ndarray] | None, color: tuple[int, int, int]) -> None:
+    if packed is None:
+        return
+    x0, y0, w, h, data = packed
+    region = overlay[y0 : y0 + h, x0 : x0 + w]
+    region[data > 0] = color
+
+
 def _extract_frame_artifacts(frame_index: int, result) -> Sam3FrameArtifacts:
     boxes = getattr(result, "boxes", None)
     names = _normalize_names(getattr(result, "names", {}) or {})
@@ -260,10 +310,11 @@ def _extract_frame_artifacts(frame_index: int, result) -> Sam3FrameArtifacts:
         elif xyxy.shape[0]:
             object_ids = np.full((xyxy.shape[0],), -1, dtype=np.int32)
 
-    masks_data = np.zeros((0, result.orig_img.shape[0], result.orig_img.shape[1]), dtype=np.uint8)
+    masks_data = np.zeros((0,), dtype=object)
     masks = getattr(result, "masks", None)
     if masks is not None and getattr(masks, "data", None) is not None:
-        masks_data = np.asarray(masks.data.cpu().numpy(), dtype=np.uint8)
+        raw_masks = np.asarray(masks.data.cpu().numpy(), dtype=np.uint8)
+        masks_data = _as_object_array([_pack_mask(mask) for mask in raw_masks])
 
     return Sam3FrameArtifacts(
         frame_index=frame_index,
@@ -319,10 +370,10 @@ def _draw_mask_overlay(image: np.ndarray, frame: Sam3FrameArtifacts, alpha: floa
     if frame.masks.shape[0] == 0:
         return rendered
     overlay = rendered.copy()
-    for index, mask in enumerate(frame.masks):
+    for index, packed in enumerate(frame.masks):
         track_id = int(frame.object_ids[index]) if frame.object_ids.size else None
         class_id = int(frame.cls[index]) if frame.cls.size else None
-        overlay[mask > 0] = _color_for_detection(track_id, class_id, index)
+        _blend_packed_mask(overlay, packed, _color_for_detection(track_id, class_id, index))
     return cv2.addWeighted(rendered, 1.0 - alpha, overlay, alpha, 0.0)
 
 
@@ -512,7 +563,7 @@ def _select_cleanup_keep_indices(
         if masks.shape[0]:
             masks = masks[area_keep]
     if cleanup_config.min_mask_fill_ratio is not None and conf.size and masks.shape[0] == xyxy.shape[0]:
-        mask_area = np.count_nonzero(masks, axis=(1, 2)).astype(np.float32)
+        mask_area = np.asarray([_packed_mask_pixel_count(packed) for packed in masks], dtype=np.float32)
         mask_fill_ratio = mask_area / np.maximum(area, 1.0)
         fill_keep = mask_fill_ratio >= float(cleanup_config.min_mask_fill_ratio)
         removed_by_mask_fill = int(np.count_nonzero(~fill_keep))
@@ -581,7 +632,7 @@ def _subset_frame(frame: Sam3FrameArtifacts, keep_indices: np.ndarray) -> Sam3Fr
             conf=np.zeros((0,), dtype=np.float32),
             cls=np.zeros((0,), dtype=np.int32),
             object_ids=np.zeros((0,), dtype=np.int32),
-            masks=np.zeros((0, frame.orig_img.shape[0], frame.orig_img.shape[1]), dtype=np.uint8),
+            masks=np.zeros((0,), dtype=object),
         )
     return Sam3FrameArtifacts(
         frame_index=frame.frame_index,
@@ -592,7 +643,7 @@ def _subset_frame(frame: Sam3FrameArtifacts, keep_indices: np.ndarray) -> Sam3Fr
         conf=frame.conf[keep_indices],
         cls=frame.cls[keep_indices],
         object_ids=frame.object_ids[keep_indices] if frame.object_ids.size else np.zeros((0,), dtype=np.int32),
-        masks=frame.masks[keep_indices] if frame.masks.shape[0] else np.zeros((0, frame.orig_img.shape[0], frame.orig_img.shape[1]), dtype=np.uint8),
+        masks=frame.masks[keep_indices] if frame.masks.shape[0] else np.zeros((0,), dtype=object),
     )
 
 
