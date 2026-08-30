@@ -332,6 +332,8 @@ Minimal example:
 Notes:
 
 - input paths may be videos or precomputed tracking JSON files
+- video-generated tracking JSON includes `source_image_size`; precomputed tracking JSON should provide it when detections come from a resized image
+- `calibration_file` should point to a structured bundle with the calibration `image_size` when using non-default camera-matrix resolutions
 - `tracking_concurrency` defaults to `1` as the conservative baseline
 - when effective tracking concurrency is `1`, tracking runs inline instead of through a worker process
 - the inline single-worker path may reuse one YOLO model instance per `(model_path, tracking mode)` within a group
@@ -393,12 +395,13 @@ For each group, the pipeline does this:
 1. Load and normalize config.
 2. Prepare run-scoped output directories.
 3. Optionally preprocess videos with masks.
-4. For video inputs, run YOLO tracking and emit raw tracking JSON.
-5. For each camera JSON, compute centroids and projected centroids.
-6. Render combined projected frames across the surviving cameras in the group.
-7. Merge processed JSONs into one group-level document.
-8. Export CSV files when enabled.
-9. Assemble the final MP4 when enabled.
+4. For video inputs, run YOLO tracking and emit raw tracking JSON with source image size metadata.
+5. Normalize raw detection pixels into the calibration image coordinate system when resolutions differ.
+6. For each camera JSON, undistort detections and compute projected centroids.
+7. Render combined projected frames across the surviving cameras in the group.
+8. Merge processed JSONs into one group-level document.
+9. Export CSV files when enabled.
+10. Assemble the final MP4 when enabled.
 
 If one camera in a group fails, the group continues with surviving cameras instead of aborting the whole group.
 
@@ -406,8 +409,8 @@ If one camera in a group fails, the group continues with surviving cameras inste
 
 High-level JSON flow:
 
-- raw tracking JSON: `frames`, `frame_id`, `detections.xyxy`, `labels`
-- processed JSON: adds [`centroids`](docs/pipeline.md) and [`projected_centroids`](docs/pipeline.md)
+- raw tracking JSON: `source_image_size`, `frames`, `frame_id`, `detections.xyxy`, `labels`; boxes are expressed in source-image pixels
+- processed JSON: adds [`centroids`](docs/pipeline.md), [`projected_centroids`](docs/pipeline.md), `calibration_image_size`, and `coordinate_space`
 - merged JSON: group-level merged processed output
 
 Merged identity semantics:
@@ -460,7 +463,8 @@ Included examples:
 
 ## Caveats
 
-- Calibration is specific to this barn/camera setup. Projection quality depends on matching the expected geometry and resolution.
+- Calibration is specific to this barn/camera setup. A structured calibration bundle records the resolution associated with its camera matrix, and resized detections are normalized to that resolution before projection.
+- Resolution-aware projection currently covers pure resizing only; cropped, padded, letterboxed, rotated, or digitally zoomed inputs require an explicit image transform not yet modeled by the runtime contract.
 - Frame merging uses `frame_id`; inputs must already be time-aligned.
 - `tracking_concurrency > 1` can increase GPU memory pressure significantly, but it is now a supported throughput path rather than a legacy fallback.
 - Camera calibration and ground-plane projection now live in [src/cowbook/vision/calibration.py](src/cowbook/vision/calibration.py). The canonical runtime calibration asset is [assets/calibration/camera_system.json](assets/calibration/camera_system.json), and [assets/calibration/camera_correspondences.json](assets/calibration/camera_correspondences.json) remains an auxiliary correspondence source.

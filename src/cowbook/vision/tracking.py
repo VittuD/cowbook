@@ -30,6 +30,7 @@ from cowbook.vision.tracking_cleanup import (
 
 logger = logging.getLogger(__name__)
 
+
 def _track_video_direct(
     video_path,
     output_json_path,
@@ -64,15 +65,17 @@ def _track_video_direct(
     # Open video to get total frame count
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
     cap.release()
-    
+
     # Run YOLO tracking on the video
     results = model.track(
         source=video_path,
         stream=True,
         save=save,
-        conf=0.45,      # ↑ fewer false positives
-        iou=0.5,        # NMS
+        conf=0.45,  # ↑ fewer false positives
+        iou=0.5,  # NMS
         tracker=str(assets_root() / "trackers" / "cows_botsort.yaml"),
         verbose=False,
     )
@@ -127,7 +130,8 @@ def _track_video_direct(
         )
 
     # Save tracking data to a JSON file
-    json_data = TrackingDocument(frames=frames).to_dict()
+    source_image_size = (width, height) if width > 0 and height > 0 else None
+    json_data = TrackingDocument(frames=frames, source_image_size=source_image_size).to_dict()
     dump_path_compact(output_json_path, json_data)
     logger.info("Tracking data saved to %s", output_json_path)
     if log_progress or reporter is not None or progress_event_sink is not None:
@@ -316,6 +320,7 @@ def track_video_with_yolo(
         camera_nr=camera_nr,
         progress_event_sink=progress_event_sink,
     )
+
 
 def load_yolo_model(model_path):
     """

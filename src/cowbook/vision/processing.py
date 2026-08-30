@@ -21,6 +21,7 @@ from cowbook.vision.rendering import render_projection_frame
 
 logger = logging.getLogger(__name__)
 
+
 def parse_json(json_file_path):
     """
     Load and parse JSON tracking data.
@@ -33,6 +34,7 @@ def parse_json(json_file_path):
     """
     return TrackingDocument.from_mapping(load_path(json_file_path)).to_dict()
 
+
 def extract_data(json_data):
     """
     Extract detection data from parsed JSON and compute centroids.
@@ -43,12 +45,13 @@ def extract_data(json_data):
     Returns:
         list: A list of dictionaries, each containing frame ID, bounding boxes,
               centroids, and labels for each detection in that frame.
-    
+
     Logic:
         Iterates over each frame in the JSON data, calculates centroids for each detection,
         and appends relevant data to a list of frames.
     """
     return extract_frames_data(json_data)
+
 
 def extract_projected_centroids_from_files(json_file_paths):
     """
@@ -66,31 +69,45 @@ def extract_projected_centroids_from_files(json_file_paths):
         documents.append(TrackingDocument.from_mapping(load_path(json_file_path)).to_dict())
     return aggregate_projected_centroids(documents)
 
+
 def convert_arrays_to_lists(data):
     """
     Recursively convert numpy arrays within the data structure to lists for JSON serialization.
-    
+
     Parameters:
         data (any): The data to process, typically a dict or list.
-    
+
     Returns:
         any: A new data structure where all numpy arrays are replaced by lists.
     """
     return transform_convert_arrays_to_lists(data)
 
-def reconstruct_json(frames_data):
+
+def reconstruct_json(
+    frames_data,
+    *,
+    source_image_size=None,
+    calibration_image_size=None,
+    coordinate_space=None,
+):
     """
     Reconstruct JSON structure from extracted detection data and convert all arrays to lists.
-    
+
     Parameters:
         frames_data (list): A list of dictionaries, each containing frame ID,
                             bounding boxes, centroids, and labels for each detection.
-    
+
     Returns:
         dict: A JSON-like dictionary with the original structure,
               containing frames and detections with bounding boxes.
     """
-    return reconstruct_tracking_document(frames_data)
+    return reconstruct_tracking_document(
+        frames_data,
+        source_image_size=source_image_size,
+        calibration_image_size=calibration_image_size,
+        coordinate_space=coordinate_space,
+    )
+
 
 def process_detections(frame_data, mtx_or_camera_model, dist=None):
     """
@@ -103,9 +120,9 @@ def process_detections(frame_data, mtx_or_camera_model, dist=None):
 
     Returns:
         dict: Updated frame data with undistorted bounding boxes and centroids.
-    
+
     Logic:
-        Each bounding box and centroid is undistorted using the provided camera matrix 
+        Each bounding box and centroid is undistorted using the provided camera matrix
         and distortion coefficients.
     """
     if isinstance(mtx_or_camera_model, CameraModel):
@@ -115,18 +132,18 @@ def process_detections(frame_data, mtx_or_camera_model, dist=None):
             raise ValueError("dist is required when passing raw camera matrices.")
         camera_model = build_camera_model(mtx_or_camera_model, dist)
 
-    dets = frame_data['detections']
+    dets = frame_data["detections"]
     if not dets:
-        frame_data['centroids'] = []
+        frame_data["centroids"] = []
         return frame_data
 
     # Build arrays: two corners per bbox, and one centroid per detection
     bps = []
     cps = []
     for d in dets:
-        x1, y1, x2, y2 = d['bbox']
+        x1, y1, x2, y2 = d["bbox"]
         bps.extend([[x1, y1], [x2, y2]])
-        cx, cy = d['centroid']
+        cx, cy = d["centroid"]
         cps.append([cx, cy])
 
     # Batch undistort
@@ -136,16 +153,17 @@ def process_detections(frame_data, mtx_or_camera_model, dist=None):
     # Write back undistorted bbox corners and centroids
     centroids_out = []
     for i, d in enumerate(dets):
-        (x1u, y1u) = bps_u[2*i + 0]
-        (x2u, y2u) = bps_u[2*i + 1]
-        d['bbox'] = [float(x1u), float(y1u), float(x2u), float(y2u)]
+        (x1u, y1u) = bps_u[2 * i + 0]
+        (x2u, y2u) = bps_u[2 * i + 1]
+        d["bbox"] = [float(x1u), float(y1u), float(x2u), float(y2u)]
 
         (cxu, cyu) = cps_u[i]
-        d['centroid'] = [float(cxu), float(cyu)]
-        centroids_out.append(d['centroid'])
+        d["centroid"] = [float(cxu), float(cyu)]
+        centroids_out.append(d["centroid"])
 
-    frame_data['centroids'] = centroids_out
+    frame_data["centroids"] = centroids_out
     return frame_data
+
 
 def project_to_ground(centroids, mtx, dist, channel):
     """
@@ -159,18 +177,19 @@ def project_to_ground(centroids, mtx, dist, channel):
 
     Returns:
         list: Ground-projected coordinates of the centroids.
-    
+
     Logic:
         Utilizes camera parameters and a specific channel identifier to project each centroid
         onto the ground plane for spatial analysis.
     """
     return project_points_to_ground(channel, mtx, dist, centroids)
 
+
 # Example function that might be used to save each processed frame as an image (if needed)
 def save_frame_image(projected_points, frame_num, base_filename):
     """
     Save processed frame with projected points to an image file.
-    
+
     Args:
         projected_points (list): List of points projected on the ground plane.
         frame_num (int): Frame number for naming.

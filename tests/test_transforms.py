@@ -11,6 +11,8 @@ from cowbook.core.transforms import (
     iter_csv_rows,
     merge_tracking_documents,
     reconstruct_tracking_document,
+    scale_tracking_document_xyxy,
+    scale_xyxy_to_image_size,
 )
 
 
@@ -66,6 +68,43 @@ def test_reconstruct_tracking_document_preserves_current_wire_shape():
             }
         ]
     }
+
+
+def test_reconstruct_tracking_document_includes_processed_coordinate_metadata():
+    doc = reconstruct_tracking_document(
+        [],
+        source_image_size=(1280, 720),
+        calibration_image_size=(2688, 1520),
+        coordinate_space="undistorted_calibration_image",
+    )
+
+    assert doc == {
+        "frames": [],
+        "source_image_size": [1280, 720],
+        "calibration_image_size": [2688, 1520],
+        "coordinate_space": "undistorted_calibration_image",
+    }
+
+
+def test_scale_tracking_document_xyxy_is_pure_and_uses_target_coordinate_space():
+    document = {
+        "source_image_size": [100, 50],
+        "frames": [{"frame_id": 0, "detections": {"xyxy": [[10.0, 5.0, 20.0, 10.0]]}}],
+    }
+
+    scaled = scale_tracking_document_xyxy(
+        document,
+        source_size=(100, 50),
+        target_size=(200, 100),
+    )
+
+    assert scaled["frames"][0]["detections"]["xyxy"] == [[20.0, 10.0, 40.0, 20.0]]
+    assert document["frames"][0]["detections"]["xyxy"] == [[10.0, 5.0, 20.0, 10.0]]
+
+
+def test_scale_xyxy_rejects_invalid_image_sizes():
+    with np.testing.assert_raises(ValueError):
+        scale_xyxy_to_image_size([], source_size=(0, 10), target_size=(20, 20))
 
 
 def test_merge_tracking_documents_is_pure_and_keeps_local_track_identity(processed_tracking_doc):

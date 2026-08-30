@@ -38,6 +38,64 @@ def convert_arrays_to_lists(data: Any) -> Any:
     return data
 
 
+def _validated_image_size(image_size: tuple[int, int] | list[int]) -> tuple[int, int]:
+    if len(image_size) != 2:
+        raise ValueError(f"image size must contain [width, height], got {image_size!r}")
+    width, height = int(image_size[0]), int(image_size[1])
+    if width <= 0 or height <= 0:
+        raise ValueError(f"image size values must be positive, got {image_size!r}")
+    return width, height
+
+
+def scale_xyxy_to_image_size(
+    boxes: Iterable[list[float]],
+    *,
+    source_size: tuple[int, int] | list[int],
+    target_size: tuple[int, int] | list[int],
+) -> list[list[float]]:
+    source_width, source_height = _validated_image_size(source_size)
+    target_width, target_height = _validated_image_size(target_size)
+    sx = float(target_width) / float(source_width)
+    sy = float(target_height) / float(source_height)
+    return [
+        [
+            float(box[0]) * sx,
+            float(box[1]) * sy,
+            float(box[2]) * sx,
+            float(box[3]) * sy,
+        ]
+        for box in boxes
+    ]
+
+
+def scale_tracking_document_xyxy(
+    document: dict[str, Any],
+    *,
+    source_size: tuple[int, int] | list[int],
+    target_size: tuple[int, int] | list[int],
+) -> dict[str, Any]:
+    if _validated_image_size(source_size) == _validated_image_size(target_size):
+        return document
+
+    scaled_frames = []
+    for frame in document.get("frames", []) or []:
+        detections = frame.get("detections", {}) or {}
+        scaled_frames.append(
+            {
+                **frame,
+                "detections": {
+                    **detections,
+                    "xyxy": scale_xyxy_to_image_size(
+                        detections.get("xyxy", []) or [],
+                        source_size=source_size,
+                        target_size=target_size,
+                    ),
+                },
+            }
+        )
+    return {**document, "frames": scaled_frames}
+
+
 def extract_frames_data(json_data: dict[str, Any]) -> list[dict[str, Any]]:
     frames_data = []
     for frame in json_data["frames"]:
@@ -51,15 +109,20 @@ def extract_frames_data(json_data: dict[str, Any]) -> list[dict[str, Any]]:
                 for bbox in frame["detections"]["xyxy"]
             ],
             "labels": [
-                TrackingLabel.from_mapping(label).to_dict()
-                for label in frame.get("labels", [])
+                TrackingLabel.from_mapping(label).to_dict() for label in frame.get("labels", [])
             ],
         }
         frames_data.append(frame_data)
     return frames_data
 
 
-def reconstruct_tracking_document(frames_data: list[dict[str, Any]]) -> dict[str, Any]:
+def reconstruct_tracking_document(
+    frames_data: list[dict[str, Any]],
+    *,
+    source_image_size: tuple[int, int] | None = None,
+    calibration_image_size: tuple[int, int] | None = None,
+    coordinate_space: str | None = None,
+) -> dict[str, Any]:
     frames: list[TrackingFrame] = []
     for frame_data in frames_data:
         detections = frame_data["detections"]
@@ -68,19 +131,25 @@ def reconstruct_tracking_document(frames_data: list[dict[str, Any]]) -> dict[str
                 frame_id=frame_data["frame_id"],
                 detections=Detections(
                     xyxy=[convert_arrays_to_lists(detection["bbox"]) for detection in detections],
-                    centroids=[convert_arrays_to_lists(detection["centroid"]) for detection in detections],
+                    centroids=[
+                        convert_arrays_to_lists(detection["centroid"]) for detection in detections
+                    ],
                     projected_centroids=[
                         convert_arrays_to_lists(detection.get("projected_centroid"))
                         for detection in detections
                     ],
                 ),
                 labels=[
-                    TrackingLabel.from_mapping(label)
-                    for label in frame_data.get("labels", [])
+                    TrackingLabel.from_mapping(label) for label in frame_data.get("labels", [])
                 ],
             )
         )
-    return TrackingDocument(frames=frames).to_dict()
+    return TrackingDocument(
+        frames=frames,
+        source_image_size=source_image_size,
+        calibration_image_size=calibration_image_size,
+        coordinate_space=coordinate_space,
+    ).to_dict()
 
 
 def aggregate_projected_centroids(documents: Iterable[dict[str, Any]]) -> dict[int, list[Any]]:
@@ -159,10 +228,7 @@ def merge_tracking_documents(
     for fid in sorted(frames_acc.keys()):
         bucket = frames_acc[fid]
         xyxy = bucket["xyxy"]
-        labels = [
-            bucket["labels"][i]
-            for i in range(len(xyxy))
-        ]
+        labels = [bucket["labels"][i] for i in range(len(xyxy))]
         merged_frames.append(
             TrackingFrame(
                 frame_id=fid,

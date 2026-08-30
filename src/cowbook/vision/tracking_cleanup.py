@@ -109,8 +109,8 @@ def detect_video_to_frames(
                 xyxy=boxes.xyxy.cpu().numpy().astype(np.float32),
                 conf=boxes.conf.cpu().numpy().astype(np.float32),
                 cls=boxes.cls.cpu().numpy().astype(np.int32),
-                )
             )
+        )
     if owns_model:
         del model
     return frames
@@ -168,7 +168,9 @@ def _render_tracked_frame(
         (text_w, text_h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
         tx, ty = p1[0], max(0, p1[1] - 5)
         cv2.rectangle(frame, (tx, max(0, ty - text_h - 4)), (tx + text_w + 4, ty + 2), color, -1)
-        cv2.putText(frame, label, (tx + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2, cv2.LINE_AA)
+        cv2.putText(
+            frame, label, (tx + 2, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2, cv2.LINE_AA
+        )
     return frame
 
 
@@ -206,7 +208,9 @@ def track_from_detection_frames(
         ok, frame = cap.read()
         if not ok:
             break
-        boxes = make_ultralytics_boxes(det_frame.xyxy, det_frame.conf, det_frame.cls, det_frame.shape)
+        boxes = make_ultralytics_boxes(
+            det_frame.xyxy, det_frame.conf, det_frame.cls, det_frame.shape
+        )
         tracks = tracker.update(boxes, img=frame)
         if tracks is None or len(tracks) == 0:
             tracks_arr = np.zeros((0, 8), dtype=np.float32)
@@ -263,4 +267,5 @@ def track_from_detection_frames(
     cap.release()
     if writer is not None:
         writer.release()
-    return TrackingDocument(frames=frames)
+    source_image_size = (width, height) if width > 0 and height > 0 else None
+    return TrackingDocument(frames=frames, source_image_size=source_image_size)

@@ -67,6 +67,7 @@ def test_direct_tracking_emits_shared_progress_events(tmp_path, monkeypatch):
     assert events[2][1]["frame_current"] == 2
     saved = json.loads(output_json.read_text(encoding="utf-8"))
     assert len(saved["frames"]) == 2
+    assert saved["source_image_size"] == [2, 2]
 
 
 def test_cleanup_tracking_emits_shared_stage_events(tmp_path, monkeypatch):
@@ -153,7 +154,9 @@ def test_cleanup_tracking_emits_postprocess_stage_for_gap_fill_only(tmp_path, mo
         "preprocess_detection_frames",
         lambda frames, *_args, **_kwargs: frames,
     )
-    monkeypatch.setattr(tracking_module, "track_from_detection_frames", lambda *_args, **_kwargs: fake_doc)
+    monkeypatch.setattr(
+        tracking_module, "track_from_detection_frames", lambda *_args, **_kwargs: fake_doc
+    )
     monkeypatch.setattr(
         tracking_module,
         "apply_temporal_track_postprocessing",
@@ -304,7 +307,9 @@ def test_stage_progress_reporter_emits_to_job_reporter_with_camera_and_fraction(
 
     snapshot = store.get("job-stage")
     assert snapshot is not None
-    progress_payloads = [event.payload for event in snapshot.events if event.event_type == "masking_stage_progress"]
+    progress_payloads = [
+        event.payload for event in snapshot.events if event.event_type == "masking_stage_progress"
+    ]
     assert progress_payloads[0]["camera_nr"] == 4
     assert progress_payloads[0]["kind"] == "demo"
     assert progress_payloads[-1]["progress_fraction"] == 1.0

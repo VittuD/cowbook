@@ -198,12 +198,15 @@ def test_find_prunable_track_ids_can_require_total_observations_too():
         ]
     )
 
-    assert find_prunable_track_ids(
-        document,
-        min_track_streak=3,
-        min_total_observations=None,
-        gap_tolerance=6,
-    ) == set()
+    assert (
+        find_prunable_track_ids(
+            document,
+            min_track_streak=3,
+            min_total_observations=None,
+            gap_tolerance=6,
+        )
+        == set()
+    )
     assert find_prunable_track_ids(
         document,
         min_track_streak=3,
@@ -223,6 +226,7 @@ def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frame
         }
     )
     document = TrackingDocument(
+        source_image_size=(64, 48),
         frames=[
             TrackingFrame(
                 frame_id=0,
@@ -235,7 +239,7 @@ def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frame
                 detections=Detections(xyxy=[[14, 14, 24, 24]]),
                 labels=[TrackingLabel(class_id=0, id=7, det_idx=0, real=1, src="tracker")],
             ),
-        ]
+        ],
     )
 
     postprocessed = apply_temporal_track_postprocessing(document, cleanup)
@@ -247,6 +251,7 @@ def test_apply_temporal_track_postprocessing_gap_fills_and_marks_synthetic_frame
 
     final_label = postprocessed.frames[2].labels[0]
     assert final_label.src in {"tracker", "smooth"}
+    assert postprocessed.source_image_size == (64, 48)
 
 
 def test_apply_temporal_track_postprocessing_can_gap_fill_without_smoothing():
@@ -294,13 +299,14 @@ def test_track_video_with_yolo_uses_cleanup_path_when_enabled(tmp_path, monkeypa
         )
     ]
     fake_doc = TrackingDocument(
+        source_image_size=(64, 48),
         frames=[
             TrackingFrame(
                 frame_id=0,
                 detections=Detections(xyxy=[[1, 1, 10, 10]]),
                 labels=[TrackingLabel(class_id=0, id=1, det_idx=0, real=1, src="tracker")],
             )
-        ]
+        ],
     )
 
     monkeypatch.setattr(
@@ -333,4 +339,5 @@ def test_track_video_with_yolo_uses_cleanup_path_when_enabled(tmp_path, monkeypa
 
     saved = json.loads(output_json.read_text())
     assert calls == ["detect", "preprocess", "track", "smooth"]
+    assert saved["source_image_size"] == [64, 48]
     assert saved["frames"][0]["labels"][0]["det_idx"] == 0

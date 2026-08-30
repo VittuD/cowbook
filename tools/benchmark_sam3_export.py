@@ -107,14 +107,22 @@ def _save_frame_masks(frame: Sam3ExportFrameArtifacts, output_dir: Path) -> str:
     return str(output_path)
 
 
-def _build_tracking_document(frames: list[Sam3ExportFrameArtifacts]) -> TrackingDocument:
+def _build_tracking_document(
+    frames: list[Sam3ExportFrameArtifacts],
+    *,
+    source_image_size: tuple[int, int] | None = None,
+) -> TrackingDocument:
     tracking_frames: list[TrackingFrame] = []
     for frame in frames:
         centroids = [list(centroid_from_xyxy(box.tolist())) for box in frame.xyxy]
         labels = [
             TrackingLabel(
                 class_id=int(frame.cls[index]) if frame.cls.size else None,
-                id=(int(frame.object_ids[index]) if frame.object_ids.size and int(frame.object_ids[index]) >= 0 else None),
+                id=(
+                    int(frame.object_ids[index])
+                    if frame.object_ids.size and int(frame.object_ids[index]) >= 0
+                    else None
+                ),
                 det_idx=index,
                 real=1,
                 src="sam3_export",
@@ -131,7 +139,7 @@ def _build_tracking_document(frames: list[Sam3ExportFrameArtifacts]) -> Tracking
                 labels=labels,
             )
         )
-    return TrackingDocument(frames=tracking_frames)
+    return TrackingDocument(frames=tracking_frames, source_image_size=source_image_size)
 
 
 def _run_export_for_video(
@@ -153,7 +161,9 @@ def _run_export_for_video(
     width = int(metadata["width"])
     height = int(metadata["height"])
     expected_frame_count = int(metadata["frame_count"])
-    expected_logged_frame_count = min(expected_frame_count, max_frames) if max_frames > 0 else expected_frame_count
+    expected_logged_frame_count = (
+        min(expected_frame_count, max_frames) if max_frames > 0 else expected_frame_count
+    )
 
     json_dir = output_root / "json"
     masks_root = output_root / "masks"
@@ -204,7 +214,11 @@ def _run_export_for_video(
         exported_frames.append(frame)
         frame_count += 1
         if log_progress and log_every_frames > 0:
-            if frame_index == 0 or ((frame_index + 1) % log_every_frames == 0) or ((frame_index + 1) == expected_logged_frame_count):
+            if (
+                frame_index == 0
+                or ((frame_index + 1) % log_every_frames == 0)
+                or ((frame_index + 1) == expected_logged_frame_count)
+            ):
                 print(
                     f"[sam3-export] progress: {video_path} frame={frame_index + 1}/{expected_logged_frame_count} instances={instance_count}",
                     flush=True,
@@ -215,7 +229,7 @@ def _run_export_for_video(
     elapsed_s = time.perf_counter() - start
     mean_instances = (total_instances / frame_count) if frame_count else 0.0
 
-    tracking_document = _build_tracking_document(exported_frames)
+    tracking_document = _build_tracking_document(exported_frames, source_image_size=(width, height))
     dump_path_compact(tracking_json_path, tracking_document.to_dict())
 
     summary_payload = {
@@ -237,7 +251,10 @@ def _run_export_for_video(
         "effective_fps": (frame_count / elapsed_s) if elapsed_s > 0 else 0.0,
     }
     dump_path_compact(summary_json_path, summary_payload)
-    _log_progress(log_progress, f"[sam3-export] done: {video_path} in {elapsed_s:.2f}s -> {tracking_json_path}")
+    _log_progress(
+        log_progress,
+        f"[sam3-export] done: {video_path} in {elapsed_s:.2f}s -> {tracking_json_path}",
+    )
     return Sam3ExportVideoRunResult(
         video_path=video_path,
         tracking_json_path=str(tracking_json_path),
@@ -262,7 +279,9 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run SAM3 semantic tracking and export reusable per-frame masks plus tracking JSON.",
     )
-    parser.add_argument("--videos", nargs="+", default=_default_videos(), help="Video paths to run.")
+    parser.add_argument(
+        "--videos", nargs="+", default=_default_videos(), help="Video paths to run."
+    )
     parser.add_argument(
         "--model-path",
         default="sam3.pt",
@@ -295,9 +314,15 @@ def _parse_args() -> argparse.Namespace:
         default="var/benchmarks/prepared_videos_sam3_export",
         help="Directory for prepared benchmark videos when --extend-seconds is used.",
     )
-    parser.add_argument("--conf-threshold", type=float, default=0.25, help="Confidence threshold forwarded to SAM3.")
-    parser.add_argument("--imgsz", type=int, default=640, help="Inference image size forwarded to SAM3.")
-    parser.add_argument("--device", default=None, help="Optional device string passed to Ultralytics.")
+    parser.add_argument(
+        "--conf-threshold", type=float, default=0.25, help="Confidence threshold forwarded to SAM3."
+    )
+    parser.add_argument(
+        "--imgsz", type=int, default=640, help="Inference image size forwarded to SAM3."
+    )
+    parser.add_argument(
+        "--device", default=None, help="Optional device string passed to Ultralytics."
+    )
     parser.add_argument(
         "--half",
         action=argparse.BooleanOptionalAction,

@@ -8,7 +8,10 @@ from typing import Any
 from cowbook.io.json_utils import dump_path_compact, dumps_pretty, load_path
 from cowbook.io.video_processor import create_video_from_images
 from cowbook.vision.calibration import default_calibration_file, resolve_camera_spec
-from cowbook.vision.frame_processor import plot_combined_projected_centroids, process_centroids
+from cowbook.vision.frame_processor import (
+    plot_combined_projected_centroids,
+    process_centroids_with_metadata,
+)
 from cowbook.vision.processing import reconstruct_json
 
 
@@ -71,47 +74,9 @@ def _load_source_frame_size(tracking_json_path: str) -> tuple[int, int] | None:
     return int(width), int(height)
 
 
-def _scale_tracking_document_xyxy(
-    document: dict[str, Any],
-    *,
-    source_size: tuple[int, int],
-    target_size: tuple[int, int],
-) -> dict[str, Any]:
-    source_width, source_height = source_size
-    target_width, target_height = target_size
-    if source_width <= 0 or source_height <= 0:
-        raise ValueError(f"Invalid source frame size: {source_size}")
-    if (source_width, source_height) == (target_width, target_height):
-        return document
-
-    sx = float(target_width) / float(source_width)
-    sy = float(target_height) / float(source_height)
-    scaled_frames: list[dict[str, Any]] = []
-    for frame in document.get("frames", []):
-        detections = frame.get("detections", {}) or {}
-        xyxy = detections.get("xyxy", []) or []
-        scaled_xyxy = [
-            [
-                float(box[0]) * sx,
-                float(box[1]) * sy,
-                float(box[2]) * sx,
-                float(box[3]) * sy,
-            ]
-            for box in xyxy
-        ]
-        scaled_frames.append(
-            {
-                **frame,
-                "detections": {
-                    **detections,
-                    "xyxy": scaled_xyxy,
-                },
-            }
-        )
-    return {"frames": scaled_frames}
-
-
-def _offset_frames_data(frames_data: list[dict[str, Any]], frame_offset: int) -> list[dict[str, Any]]:
+def _offset_frames_data(
+    frames_data: list[dict[str, Any]], frame_offset: int
+) -> list[dict[str, Any]]:
     if frame_offset == 0:
         return frames_data
     return [
@@ -123,7 +88,9 @@ def _offset_frames_data(frames_data: list[dict[str, Any]], frame_offset: int) ->
     ]
 
 
-def _offset_tracking_frames(frames: list[dict[str, Any]], frame_offset: int) -> list[dict[str, Any]]:
+def _offset_tracking_frames(
+    frames: list[dict[str, Any]], frame_offset: int
+) -> list[dict[str, Any]]:
     if frame_offset == 0:
         return frames
     return [
@@ -215,7 +182,11 @@ def main() -> int:
         tracking_jsons=args.tracking_jsons,
         tracking_json_dir=args.tracking_json_dir,
     )
-    camera_nr = int(args.camera_nr) if args.camera_nr is not None else _infer_camera_nr(tracking_json_paths[0])
+    camera_nr = (
+        int(args.camera_nr)
+        if args.camera_nr is not None
+        else _infer_camera_nr(tracking_json_paths[0])
+    )
     camera_spec = resolve_camera_spec(camera_nr, calibration_file=args.calibration_file)
     calibration_image_size = tuple(int(v) for v in camera_spec.image_size)
 
@@ -232,21 +203,31 @@ def main() -> int:
     processed_json_paths: list[str] = []
     chunk_summaries: list[dict[str, Any]] = []
     merged_tracking_frames: list[dict[str, Any]] = []
+    merged_source_image_size: tuple[int, int] | None = None
+    mixed_source_image_sizes = False
     frame_offset = 0
 
-    _log_progress(bool(args.log_progress), f"[sam3-project] processing {len(tracking_json_paths)} tracking JSON(s)")
+    _log_progress(
+        bool(args.log_progress),
+        f"[sam3-project] processing {len(tracking_json_paths)} tracking JSON(s)",
+    )
     for tracking_json_path in tracking_json_paths:
         _log_progress(bool(args.log_progress), f"[sam3-project] project: {tracking_json_path}")
         raw_document = load_path(tracking_json_path)
-        source_frame_size = _load_source_frame_size(tracking_json_path)
+        declared_source_size = raw_document.get("source_image_size")
+        source_frame_size = (
+            tuple(int(value) for value in declared_source_size)
+            if declared_source_size is not None
+            else _load_source_frame_size(tracking_json_path)
+        )
         projection_input_document = raw_document
         scale_info: dict[str, Any] | None = None
+        if source_frame_size is not None and declared_source_size is None:
+            projection_input_document = {
+                **raw_document,
+                "source_image_size": list(source_frame_size),
+            }
         if source_frame_size is not None and source_frame_size != calibration_image_size:
-            projection_input_document = _scale_tracking_document_xyxy(
-                raw_document,
-                source_size=source_frame_size,
-                target_size=calibration_image_size,
-            )
             scale_info = {
                 "source_frame_size": list(source_frame_size),
                 "calibration_image_size": list(calibration_image_size),
@@ -254,7 +235,7 @@ def main() -> int:
             _log_progress(
                 bool(args.log_progress),
                 (
-                    f"[sam3-project] rescale: {tracking_json_path} "
+                    f"[sam3-project] normalize during processing: {tracking_json_path} "
                     f"{source_frame_size[0]}x{source_frame_size[1]} -> "
                     f"{calibration_image_size[0]}x{calibration_image_size[1]}"
                 ),
@@ -265,13 +246,20 @@ def main() -> int:
                 f"[sam3-project] warning: no paired export summary for {tracking_json_path}; using raw coordinates",
             )
 
-        projection_input_json_path = json_output_dir / f"{Path(tracking_json_path).stem}_projection_input.json"
+        projection_input_json_path = (
+            json_output_dir / f"{Path(tracking_json_path).stem}_projection_input.json"
+        )
         dump_path_compact(projection_input_json_path, projection_input_document)
 
         merged_tracking_frames.extend(
             _offset_tracking_frames(projection_input_document.get("frames", []), frame_offset)
         )
-        frames_data = process_centroids(
+        if source_frame_size is not None:
+            if merged_source_image_size is None:
+                merged_source_image_size = source_frame_size
+            elif merged_source_image_size != source_frame_size:
+                mixed_source_image_sizes = True
+        frames_data, processed_metadata = process_centroids_with_metadata(
             str(projection_input_json_path),
             camera_nr,
             args.calibration_file,
@@ -279,7 +267,7 @@ def main() -> int:
             show_progress=bool(args.log_progress),
         )
         processed_json_path = json_output_dir / f"{Path(tracking_json_path).stem}_processed.json"
-        dump_path_compact(processed_json_path, reconstruct_json(frames_data))
+        dump_path_compact(processed_json_path, reconstruct_json(frames_data, **processed_metadata))
         processed_json_paths.append(str(processed_json_path))
 
         frame_count = len(frames_data)
@@ -294,12 +282,23 @@ def main() -> int:
                 "scale_info": scale_info,
             }
         )
-        frame_offset += frame_count if frame_count > 0 else _count_document_frames(tracking_json_path)
+        frame_offset += (
+            frame_count if frame_count > 0 else _count_document_frames(tracking_json_path)
+        )
 
     merged_tracking_json_path = json_output_dir / "merged_sam3_tracking_global.json"
     merged_processed_json_path = json_output_dir / "merged_sam3_tracking_global_processed.json"
-    dump_path_compact(merged_tracking_json_path, {"frames": merged_tracking_frames})
-    merged_document = reconstruct_json(merged_frames_data)
+    merged_tracking_document: dict[str, Any] = {"frames": merged_tracking_frames}
+    if merged_source_image_size is not None and not mixed_source_image_sizes:
+        merged_tracking_document["source_image_size"] = list(merged_source_image_size)
+    dump_path_compact(merged_tracking_json_path, merged_tracking_document)
+    merged_processed_metadata: dict[str, Any] = {
+        "calibration_image_size": calibration_image_size,
+        "coordinate_space": "undistorted_calibration_image",
+    }
+    if merged_source_image_size is not None and not mixed_source_image_sizes:
+        merged_processed_metadata["source_image_size"] = merged_source_image_size
+    merged_document = reconstruct_json(merged_frames_data, **merged_processed_metadata)
     dump_path_compact(merged_processed_json_path, merged_document)
 
     projection_video_path: str | None = None
@@ -317,7 +316,9 @@ def main() -> int:
             log_progress=bool(args.log_progress),
         )
         projection_video_path = str(video_output_dir / args.output_video_filename)
-        _log_progress(bool(args.log_progress), f"[sam3-project] assembling video -> {projection_video_path}")
+        _log_progress(
+            bool(args.log_progress), f"[sam3-project] assembling video -> {projection_video_path}"
+        )
         create_video_from_images(
             str(frame_output_dir),
             projection_video_path,

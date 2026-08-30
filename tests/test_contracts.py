@@ -47,6 +47,18 @@ def test_tracking_document_round_trip_for_processed_shape(processed_tracking_doc
     assert document.to_dict() == processed_tracking_doc
 
 
+def test_tracking_document_round_trip_preserves_coordinate_metadata(raw_tracking_doc):
+    raw_tracking_doc["source_image_size"] = [1280, 720]
+    raw_tracking_doc["calibration_image_size"] = [2688, 1520]
+    raw_tracking_doc["coordinate_space"] = "undistorted_calibration_image"
+
+    document = TrackingDocument.from_mapping(raw_tracking_doc)
+
+    assert document.source_image_size == (1280, 720)
+    assert document.calibration_image_size == (2688, 1520)
+    assert document.to_dict() == raw_tracking_doc
+
+
 def test_tracking_frame_serialization_preserves_optional_fields():
     frame = TrackingFrame(
         frame_id=5,
