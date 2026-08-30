@@ -30,3 +30,4 @@ VideoVanzetti23042024/json/*
 runs/*
 vanzetti_1hr/*
 models/sam3.pt
+sample_data/videos/first_100_seconds.mp4
