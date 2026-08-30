@@ -10,6 +10,7 @@ from pathlib import Path
 
 from cowbook.io.json_utils import dump_path_compact
 from tools.benchmark_tracking import _probe_video_metadata
+from tools.run_sam3_windowed import DEFAULT_WINDOW_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CHANNELS = ["Ch1", "Ch4", "Ch6", "Ch8"]
@@ -87,7 +88,13 @@ def _assign_longest_processing_time_first(items: list[VideoWorkItem], num_gpus: 
     parallel machines when job sizes are known up front (our frame counts).
     SAM3 video tracking can't be split within a single video -- the tracker
     carries frame-to-frame memory state -- so the only axis that
-    parallelizes is across videos, one full model instance per GPU.
+    parallelizes is across videos, one full model instance per GPU. That
+    holds whether or not a video is windowed internally (tools.run_sam3_
+    windowed processes one video's windows sequentially on a single GPU):
+    windowing bounds memory and adds a small, roughly constant per-window
+    reload cost, but a video's total frame count remains an accurate
+    proxy for its total processing time either way, so no separate
+    weighting is needed for windowed vs. single-pass dispatch.
     """
     assignments = [GpuAssignment(gpu_index=index) for index in range(num_gpus)]
     for item in sorted(items, key=lambda work_item: work_item.frame_count, reverse=True):
@@ -132,13 +139,16 @@ def _launch_assignment(
     render_mode: str,
     log_dir: Path,
     log_every_frames: int,
+    windowed: bool,
+    window_seconds: float,
 ) -> subprocess.Popen:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"gpu{assignment.gpu_index}.log"
+    module_name = "tools.run_sam3_windowed" if windowed else "tools.benchmark_sam3_semantic_tracking"
     command = [
         sys.executable,
         "-m",
-        "tools.benchmark_sam3_semantic_tracking",
+        module_name,
         "--videos",
         *assignment.videos,
         "--prompts",
@@ -154,6 +164,8 @@ def _launch_assignment(
         "--log-every-frames",
         str(log_every_frames),
     ]
+    if windowed:
+        command += ["--window-seconds", str(window_seconds)]
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = str(assignment.gpu_index)
     log_file = open(log_path, "w")
@@ -165,7 +177,10 @@ def _parse_args() -> argparse.Namespace:
         description=(
             "Partition a folder's videos across the available GPUs (one SAM3 "
             "video-tracking process per GPU, longest-job-first bin-packing) "
-            "and optionally launch them."
+            "and optionally launch them. Dispatches tools.run_sam3_windowed "
+            "by default (bounded GPU memory via fixed-duration windows); "
+            "pass --no-windowed for a single unbroken pass per video "
+            "(tools.benchmark_sam3_semantic_tracking) instead."
         )
     )
     parser.add_argument("--input-dir", required=True, help="Directory containing input videos.")
@@ -198,6 +213,23 @@ def _parse_args() -> argparse.Namespace:
         choices=("all", "processed-only", "raw-only", "none"),
         default="none",
         help="Rendering mode forwarded to each worker.",
+    )
+    parser.add_argument(
+        "--windowed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Dispatch tools.run_sam3_windowed (fixed-duration windows, "
+            "bounded GPU memory, no persistent extra disk usage) instead "
+            "of tools.benchmark_sam3_semantic_tracking (single pass over "
+            "the whole video)."
+        ),
+    )
+    parser.add_argument(
+        "--window-seconds",
+        type=float,
+        default=DEFAULT_WINDOW_SECONDS,
+        help="Window length in seconds forwarded to each worker when --windowed is set.",
     )
     parser.add_argument(
         "--seconds-per-frame",
@@ -236,6 +268,10 @@ def main() -> int:
     num_gpus = int(args.num_gpus) if int(args.num_gpus) > 0 else _detect_gpu_count()
     video_paths = _collect_channel_videos(str(args.input_dir), list(args.channels))
     _log(True, f"found {len(video_paths)} videos across channels {list(args.channels)}, targeting {num_gpus} GPU(s)")
+    if args.windowed:
+        _log(True, f"dispatch mode: windowed ({float(args.window_seconds):.0f}s windows per worker)")
+    else:
+        _log(True, "dispatch mode: single pass per video (no windowing)")
 
     items = _probe_videos(video_paths, log_progress=True)
     assignments = _assign_longest_processing_time_first(items, num_gpus)
@@ -247,6 +283,8 @@ def main() -> int:
             "channels": list(args.channels),
             "num_gpus": num_gpus,
             "seconds_per_frame": float(args.seconds_per_frame),
+            "windowed": bool(args.windowed),
+            "window_seconds": float(args.window_seconds),
             "assignments": [assignment.to_dict(float(args.seconds_per_frame)) for assignment in assignments],
         }
         dump_path_compact(Path(args.plan_path), plan_payload)
@@ -271,6 +309,8 @@ def main() -> int:
             render_mode=str(args.render_mode),
             log_dir=log_dir,
             log_every_frames=int(args.log_every_frames),
+            windowed=bool(args.windowed),
+            window_seconds=float(args.window_seconds),
         )
         processes.append((assignment.gpu_index, process.pid))
         _log(True, f"launched gpu {assignment.gpu_index}: pid={process.pid} log={log_dir / f'gpu{assignment.gpu_index}.log'}")

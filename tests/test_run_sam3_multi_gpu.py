@@ -79,3 +79,71 @@ def test_detect_gpu_count_counts_nvidia_smi_lines(monkeypatch):
     monkeypatch.setattr(module.subprocess, "run", _fake_run)
 
     assert module._detect_gpu_count() == 4
+
+
+class _FakePopen:
+    def __init__(self, command, **kwargs):
+        self.command = command
+        self.kwargs = kwargs
+        self.pid = 4242
+
+
+def test_launch_assignment_dispatches_windowed_tool_by_default(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured["env"] = kwargs.get("env")
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=3, videos=["a.mp4", "b.mp4"], total_frames=100)
+
+    process = module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=True,
+        window_seconds=600.0,
+    )
+
+    assert process.pid == 4242
+    command = captured["command"]
+    assert "tools.run_sam3_windowed" in command
+    assert "tools.benchmark_sam3_semantic_tracking" not in command
+    assert "--window-seconds" in command
+    assert command[command.index("--window-seconds") + 1] == "600.0"
+    assert command[command.index("--videos") + 1 : command.index("--videos") + 3] == ["a.mp4", "b.mp4"]
+    assert captured["env"]["CUDA_VISIBLE_DEVICES"] == "3"
+
+
+def test_launch_assignment_dispatches_single_pass_tool_when_not_windowed(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=0, videos=["a.mp4"], total_frames=50)
+
+    module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=False,
+        window_seconds=600.0,
+    )
+
+    command = captured["command"]
+    assert "tools.benchmark_sam3_semantic_tracking" in command
+    assert "tools.run_sam3_windowed" not in command
+    assert "--window-seconds" not in command
