@@ -118,7 +118,8 @@ def _default_cleanup_config() -> TrackingCleanupConfig:
 
 def _log_progress(enabled: bool, message: str) -> None:
     if enabled:
-        print(message, flush=True)
+        timestamp = time.strftime("%H:%M:%S")
+        print(f"[{timestamp}] {message}", flush=True)
 
 
 def _maybe_log_frame_progress(
@@ -133,9 +134,9 @@ def _maybe_log_frame_progress(
     if not enabled or every_n_frames <= 0:
         return
     if frame_index == 0 or ((frame_index + 1) % every_n_frames == 0) or ((frame_index + 1) == frame_count):
-        print(
+        _log_progress(
+            enabled,
             f"[sam3] progress: {video_path} frame={frame_index + 1}/{frame_count} instances={instance_count}",
-            flush=True,
         )
 
 
