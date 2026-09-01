@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, List, Tuple
 
 import cv2
+import numpy as np
 
 from cowbook.execution import JobReporter, StageProgressReporter
 from cowbook.io.json_utils import dump_path_pretty, load_path
@@ -73,6 +74,50 @@ def _ensure_mask_size(mask, target_size: Tuple[int, int]):
         return resized, "half"
     # no resize -> will result in no masking (identity)
     return mask, "mismatch"
+
+
+def _mask_bounding_box(mask) -> Tuple[int, int, int, int]:
+    """Tight bounding box (x0, y0, x1, y1) around the mask's nonzero region.
+
+    x1/y1 are exclusive, so the box is directly usable as a numpy slice:
+    `frame[y0:y1, x0:x1]`.
+    """
+    ys, xs = np.nonzero(mask)
+    if ys.size == 0 or xs.size == 0:
+        raise ValueError("Mask has no nonzero pixels; nothing to crop to.")
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def _round_bbox_to_even_dimensions(
+    bbox: Tuple[int, int, int, int], frame_width: int, frame_height: int
+) -> Tuple[int, int, int, int]:
+    """Nudge a (x0, y0, x1, y1) bbox so both `x1 - x0` and `y1 - y0` are even.
+
+    Many video codecs (mp4v included) require even width/height and will
+    silently misencode an odd-sized frame instead of raising -- writing a
+    1151-tall crop, for example, came back as a corrupted 1150-tall
+    readback, not just a cleanly dropped last row. So this must run before
+    any bbox reaches cv2.VideoWriter. Prefers extending the box outward
+    (toward whichever frame edge has room) over shrinking it, so the
+    region of interest is never cut into; only falls back to shrinking
+    when the box already touches both edges on that axis.
+    """
+    x0, y0, x1, y1 = bbox
+    if (x1 - x0) % 2 != 0:
+        if x1 < frame_width:
+            x1 += 1
+        elif x0 > 0:
+            x0 -= 1
+        else:
+            x1 -= 1
+    if (y1 - y0) % 2 != 0:
+        if y1 < frame_height:
+            y1 += 1
+        elif y0 > 0:
+            y0 -= 1
+        else:
+            y1 -= 1
+    return x0, y0, x1, y1
 
 
 # ---------- Video processing ----------
@@ -212,6 +257,75 @@ def _process_one_video(
     except Exception as e:
         logger.exception("Error masking %s -> %s: %s", src_path, dst_path, e)
         return (src_path, dst_path, False)
+
+
+def crop_and_mask_video(
+    src_path: str,
+    dst_path: str,
+    mask_path: str,
+    *,
+    apply_mask_within_crop: bool = True,
+) -> Tuple[int, int, int, int]:
+    """Crop every frame of `src_path` to the mask's tight bounding box and
+    write the result to `dst_path`, optionally also blacking out non-mask
+    pixels within that crop (mask coverage isn't necessarily rectangular,
+    so pixels outside the region of interest can still remain inside the
+    bounding box).
+
+    Unlike `_process_one_video`'s plain masking (same frame size, non-mask
+    pixels blacked out), this actually shrinks the frame: a downstream
+    model spends no inference compute on pixels outside the region of
+    interest, and that region occupies more of the frame at a fixed
+    inference `imgsz` -- typically both cheaper and more accurate than
+    masking alone.
+
+    Unlike `_ensure_mask_size`, there is no half-size resize rule here: the
+    mask must already match the source video's resolution exactly.
+
+    Returns the (x0, y0, x1, y1) bounding box that was applied, in the
+    *original* frame's coordinates. Callers that need to map detections
+    made on the cropped video back to the original frame (e.g. for
+    calibration/world-coordinate projection) must add (x0, y0) back to any
+    cropped-frame coordinates -- this function only produces the cropped
+    video, it does not adjust downstream coordinates itself.
+    """
+    mask, (mask_width, mask_height) = _load_mask(mask_path)
+
+    cap = cv2.VideoCapture(src_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {src_path}")
+
+    try:
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if (mask_width, mask_height) != (width, height):
+            raise ValueError(
+                f"Mask size ({mask_width}x{mask_height}) does not match video size ({width}x{height})."
+            )
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        x0, y0, x1, y1 = _round_bbox_to_even_dimensions(_mask_bounding_box(mask), width, height)
+        crop_mask = mask[y0:y1, x0:x1] if apply_mask_within_crop else None
+
+        fourcc = _pick_fourcc(dst_path)
+        out = cv2.VideoWriter(dst_path, fourcc, fps, (x1 - x0, y1 - y0))
+        if not out.isOpened():
+            raise RuntimeError(f"Failed to create writer: {dst_path}")
+
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                cropped = frame[y0:y1, x0:x1]
+                if crop_mask is not None:
+                    cropped = cv2.bitwise_and(cropped, cropped, mask=crop_mask)
+                out.write(cropped)
+        finally:
+            out.release()
+    finally:
+        cap.release()
+
+    return x0, y0, x1, y1
 
 
 # ---------- Public entrypoint ----------
