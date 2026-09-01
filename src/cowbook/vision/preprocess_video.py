@@ -15,6 +15,17 @@ from cowbook.io.json_utils import dump_path_pretty, load_path
 
 logger = logging.getLogger(__name__)
 
+# Default per-channel mask lookup, shared by preprocess_videos()'s config
+# default and by anything else that needs "channel -> mask path" without
+# reading a full pipeline config (e.g. tools.run_sam3_multi_gpu's
+# --mask/--crop-to-mask).
+DEFAULT_CHANNEL_MASKS: Dict[str, str] = {
+    "Ch1": "assets/masks/combined_mask_ch1.png",
+    "Ch4": "assets/masks/combined_mask_ch4.png",
+    "Ch6": "assets/masks/combined_mask_ch6.png",
+    "Ch8": "assets/masks/combined_mask_ch8.png",
+}
+
 
 # ---------- Helpers to choose and load masks ----------
 def _infer_channel_from_name(path: str) -> str | None:
@@ -259,6 +270,55 @@ def _process_one_video(
         return (src_path, dst_path, False)
 
 
+def mask_video(src_path: str, dst_path: str, mask_path: str) -> None:
+    """Apply `mask_path` to every frame of `src_path` (pixels outside the
+    mask become black) and write the result to `dst_path`, at the same
+    resolution as the source.
+
+    This is `_process_one_video`'s masking behavior, exposed standalone
+    (no caching/signature bookkeeping, raises instead of swallowing
+    errors) for callers that just need one masked copy on demand, such as
+    tools.run_sam3_multi_gpu's --mask. See `crop_and_mask_video` for the
+    version that also shrinks the frame to the mask's bounding box.
+    """
+    raw_mask, (mask_width, mask_height) = _load_mask(mask_path)
+
+    cap = cv2.VideoCapture(src_path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {src_path}")
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        mask, size_state = _ensure_mask_size(raw_mask, (width, height))
+        if size_state == "mismatch":
+            logger.warning(
+                "Mask size mismatch (mask=%sx%s, frame=%sx%s) for %s. Frames will be left unmodified.",
+                mask_width, mask_height, width, height, os.path.basename(src_path),
+            )
+            mask = None
+
+        fourcc = _pick_fourcc(dst_path)
+        out = cv2.VideoWriter(dst_path, fourcc, fps, (width, height))
+        if not out.isOpened():
+            raise RuntimeError(f"Failed to create writer: {dst_path}")
+
+        try:
+            while True:
+                ok, frame = cap.read()
+                if not ok:
+                    break
+                if mask is not None:
+                    frame = cv2.bitwise_and(frame, frame, mask=mask)
+                out.write(frame)
+        finally:
+            out.release()
+    finally:
+        cap.release()
+
+
 def crop_and_mask_video(
     src_path: str,
     dst_path: str,
@@ -344,12 +404,7 @@ def preprocess_videos(
     os.makedirs(masked_root, exist_ok=True)
 
     # Where are the masks?
-    masks_cfg: Dict[str, str] = config.get("masks", {
-        "Ch1": "assets/masks/combined_mask_ch1.png",
-        "Ch4": "assets/masks/combined_mask_ch4.png",
-        "Ch6": "assets/masks/combined_mask_ch6.png",
-        "Ch8": "assets/masks/combined_mask_ch8.png",
-    })
+    masks_cfg: Dict[str, str] = config.get("masks", dict(DEFAULT_CHANNEL_MASKS))
 
     # Optional explicit camera -> channel mapping, e.g. {"1":"Ch1","4":"Ch4","6":"Ch6","8":"Ch8"}
     camera_to_mask_map = config.get("camera_to_mask_map", None)

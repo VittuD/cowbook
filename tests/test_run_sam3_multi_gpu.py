@@ -73,6 +73,67 @@ def test_assign_longest_processing_time_first_assigns_every_video_once():
     assert len(all_videos) == len(items)
 
 
+def test_channel_for_video_path_matches_by_filename_prefix():
+    assert module._channel_for_video_path("/videos/Ch1_60.mp4", ["Ch1", "Ch4"]) == "Ch1"
+    assert module._channel_for_video_path("/videos/Ch4_60.mp4", ["Ch1", "Ch4"]) == "Ch4"
+    assert module._channel_for_video_path("/videos/Ch2_60.mp4", ["Ch1", "Ch4"]) is None
+
+
+def test_preprocess_videos_for_masking_crops_and_masks_per_channel(tmp_path: Path):
+    width, height = 64, 64
+    ch1_path = tmp_path / "Ch1_a.mp4"
+    ch4_path = tmp_path / "Ch4_a.mp4"
+    for path in (ch1_path, ch4_path):
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (width, height))
+        writer.write(np.full((height, width, 3), 220, dtype=np.uint8))
+        writer.release()
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[10:40, 15:55] = 255
+    ch1_mask_path = tmp_path / "ch1_mask.png"
+    ch4_mask_path = tmp_path / "ch4_mask.png"
+    cv2.imwrite(str(ch1_mask_path), mask)
+    cv2.imwrite(str(ch4_mask_path), mask)
+
+    output_dir = tmp_path / "masked"
+    processed = module._preprocess_videos_for_masking(
+        [str(ch1_path), str(ch4_path)],
+        ["Ch1", "Ch4"],
+        output_dir=output_dir,
+        crop_to_mask=True,
+        channel_masks={"Ch1": str(ch1_mask_path), "Ch4": str(ch4_mask_path)},
+        max_workers=1,
+        log_progress=False,
+    )
+
+    assert sorted(Path(p).name for p in processed) == ["Ch1_a.mp4", "Ch4_a.mp4"]
+    for path in processed:
+        assert Path(path).exists()
+        capture = cv2.VideoCapture(path)
+        cropped_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+        cropped_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        capture.release()
+        assert (cropped_width, cropped_height) == (40, 30)  # tight bbox around mask[10:40, 15:55]
+
+
+def test_preprocess_videos_for_masking_raises_on_unmatched_channel(tmp_path: Path):
+    video_path = tmp_path / "Ch2_a.mp4"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (16, 12))
+    writer.write(np.zeros((12, 16, 3), dtype=np.uint8))
+    writer.release()
+
+    with pytest.raises(FileNotFoundError, match="No usable mask"):
+        module._preprocess_videos_for_masking(
+            [str(video_path)],
+            ["Ch1", "Ch2"],
+            output_dir=tmp_path / "masked",
+            crop_to_mask=False,
+            channel_masks={"Ch1": "/nonexistent/mask.png"},  # no entry for Ch2
+            max_workers=1,
+            log_progress=False,
+        )
+
+
 def test_detect_gpu_count_falls_back_to_one_without_nvidia_smi(monkeypatch):
     def _raise(*_args, **_kwargs):
         raise FileNotFoundError("nvidia-smi not found")
@@ -210,6 +271,70 @@ def test_launch_assignment_omits_target_fps_by_default(monkeypatch, tmp_path: Pa
     )
 
     assert "--target-fps" not in captured["command"]
+
+
+def test_launch_assignment_chains_preview_after_tracking_when_set(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=0, videos=["a.mp4", "b.mp4"], total_frames=100)
+
+    module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=True,
+        window_seconds=600.0,
+        preview_sample_count=10,
+    )
+
+    command = captured["command"]
+    # Chained via a shell, not launched concurrently: a second predictor
+    # instance sharing the GPU with the still-running tracking pass would
+    # compete for its memory instead of reusing it afterward.
+    assert command[:3] == ["bash", "-lc", command[2]]
+    shell_line = command[2]
+    assert "tools.run_sam3_windowed" in shell_line
+    assert "tools.preview_sam3_samples" in shell_line
+    assert " && " in shell_line
+    assert shell_line.index("tools.run_sam3_windowed") < shell_line.index("tools.preview_sam3_samples")
+    assert "--sample-count 10" in shell_line
+    assert str(tmp_path / "out" / "preview") in shell_line
+
+
+def test_launch_assignment_runs_only_tracking_without_preview(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=0, videos=["a.mp4"], total_frames=50)
+
+    module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=True,
+        window_seconds=600.0,
+    )
+
+    command = captured["command"]
+    assert command[0] != "bash"
+    assert "tools.preview_sam3_samples" not in command
 
 
 def test_main_creates_plan_path_parent_directory_even_on_dry_run(monkeypatch, tmp_path: Path):

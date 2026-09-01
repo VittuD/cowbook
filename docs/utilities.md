@@ -59,6 +59,21 @@ The tool writes rectified MP4 files and a `summary.json`. It reads the actual in
 
 `tools/project_sam3_tracking.py` converts exported SAM3 tracking detections into Cowbook projected outputs. New SAM3 export JSON declares `source_image_size` directly. For older exports, the projector can recover the source size from the paired export summary before passing data through the same resolution-aware processing path used by the normal pipeline.
 
+## `preview_sam3_samples.py`
+
+`tools/preview_sam3_samples.py` is a cheap SAM3 sanity-check preview: instead of tracking and rendering a whole video, it runs independent (non-tracking) semantic segmentation on N equally spaced frames per video, using `SAM3SemanticPredictor` rather than the video-tracking predictor. There's no track continuity across sampled frames -- each is an independent detection pass.
+
+```bash
+python -m tools.preview_sam3_samples \
+  --videos sample_data/videos/Ch1_60.mp4 \
+  --prompts cow \
+  --model-path sam3.pt \
+  --sample-count 10 \
+  --output-root var/preview/sam3_samples
+```
+
+Pass exactly one of `--sample-count` (an exact number of frames per video) or `--interval-seconds` (converted to a per-video sample count from that video's duration). Frames are seeked directly, not decoded sequentially, so sampling stays cheap even on long videos. Writes one annotated image per sampled frame plus a JSON summary, and reuses one predictor instance across every video and sample.
+
 ## `run_sam3_windowed.py`
 
 `tools/run_sam3_windowed.py` runs SAM3 semantic video tracking in fixed-duration windows instead of one pass over the whole video:
@@ -99,3 +114,7 @@ python -m tools.run_sam3_multi_gpu \
 GPU count auto-detects via `nvidia-smi` unless `--num-gpus` is passed explicitly, so the same command adapts to however many GPUs are actually available. Videos are bin-packed with a longest-processing-time-first heuristic (SAM3 video tracking can't be split within a single video, so the only axis that parallelizes is across videos, one full model instance per GPU); a video's total frame count is used as its weight, since windowing's per-window reload cost is small relative to actual inference time. Without `--launch`, it only prints the assignment plan and a rough per-GPU time estimate -- pass `--plan-path` to also save that plan as JSON. Pass `--no-windowed` to dispatch `tools.benchmark_sam3_semantic_tracking` (single pass per video) instead.
 
 Pass `--target-fps` to forward frame-rate decimation to every worker, regardless of `--windowed` (see `run_sam3_windowed.py` above for how decimation works and composes with windowing).
+
+Pass `--mask` or `--crop-to-mask` to preprocess every video's channel mask before SAM3 sees it -- once per video, in parallel, before probing/dispatch, so the (potentially many) windows a video gets split into never repeat that work. `--mask` keeps the original resolution and blacks out non-mask pixels; `--crop-to-mask` additionally shrinks each frame to the mask's tight bounding box (still masking within it), which is cheaper and was found to be at least as accurate as `--mask` alone since SAM3 then spends no inference on pixels outside the region of interest. Channel -> mask paths default to `DEFAULT_CHANNEL_MASKS` (`cowbook.vision.preprocess_video`); override with `--mask-dir` (expects `combined_mask_<channel-lower>.png` files). Preprocessed copies land under `--masked-video-dir` (defaults to `<output-root>/_masked_videos`).
+
+Pass `--preview-sample-count N` to also run `tools.preview_sam3_samples` on N equally spaced frames per video, chained to run right after that GPU's tracking pass finishes (not concurrently, so the two don't compete for the same GPU's memory). This is the cheap alternative to full annotated-video rendering (`--render-mode`) for a quick visual sanity check on a large batch run.

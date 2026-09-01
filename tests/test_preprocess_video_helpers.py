@@ -81,6 +81,52 @@ def test_crop_and_mask_video_produces_even_dimensions_from_an_odd_bbox(tmp_path)
     assert written_height == y1 - y0
 
 
+def test_mask_video_keeps_full_resolution_and_blacks_out_non_mask_pixels(tmp_path):
+    width, height = 64, 64
+    src_path = tmp_path / "source.mp4"
+    writer = cv2.VideoWriter(str(src_path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (width, height))
+    writer.write(np.full((height, width, 3), 220, dtype=np.uint8))
+    writer.release()
+
+    mask = np.zeros((height, width), dtype=np.uint8)
+    mask[10:40, 15:55] = 255
+    mask_path = tmp_path / "mask.png"
+    cv2.imwrite(str(mask_path), mask)
+
+    dst_path = tmp_path / "masked.mp4"
+    preprocess_module.mask_video(str(src_path), str(dst_path), str(mask_path))
+
+    capture = cv2.VideoCapture(str(dst_path))
+    assert int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)) == width
+    assert int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)) == height
+    ok, frame = capture.read()
+    capture.release()
+
+    assert ok
+    assert int(frame[0, 0].max()) < 100  # outside the mask -> blacked out
+    assert int(frame[20, 20].min()) > 100  # inside the mask -> kept
+
+
+def test_mask_video_leaves_frames_unmodified_on_size_mismatch(tmp_path, caplog):
+    src_path = tmp_path / "source.mp4"
+    writer = cv2.VideoWriter(str(src_path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (10, 8))
+    writer.write(np.full((8, 10, 3), 220, dtype=np.uint8))
+    writer.release()
+
+    mask_path = tmp_path / "mask.png"
+    cv2.imwrite(str(mask_path), np.full((4, 4), 255, dtype=np.uint8))
+
+    dst_path = tmp_path / "masked.mp4"
+    preprocess_module.mask_video(str(src_path), str(dst_path), str(mask_path))
+
+    capture = cv2.VideoCapture(str(dst_path))
+    ok, frame = capture.read()
+    capture.release()
+
+    assert ok
+    assert int(frame.min()) > 100  # left unmodified, not blacked out
+
+
 def test_crop_and_mask_video_crops_to_bbox_and_blacks_out_holes_within_it(tmp_path):
     # A reasonably sized, high-contrast frame: mp4v is lossy enough on tiny
     # or low-brightness frames that a small hole isn't reliably
