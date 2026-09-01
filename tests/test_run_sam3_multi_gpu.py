@@ -159,6 +159,59 @@ def test_launch_assignment_dispatches_single_pass_tool_when_not_windowed(monkeyp
     assert "--window-seconds" not in command
 
 
+def test_launch_assignment_forwards_target_fps_when_set(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=0, videos=["a.mp4"], total_frames=50)
+
+    module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=True,
+        window_seconds=600.0,
+        target_fps=1.0,
+    )
+
+    command = captured["command"]
+    assert "--target-fps" in command
+    assert command[command.index("--target-fps") + 1] == "1.0"
+
+
+def test_launch_assignment_omits_target_fps_by_default(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def _fake_popen(command, **kwargs):
+        captured["command"] = command
+        return _FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(module.subprocess, "Popen", _fake_popen)
+    assignment = module.GpuAssignment(gpu_index=0, videos=["a.mp4"], total_frames=50)
+
+    module._launch_assignment(
+        assignment,
+        output_root=tmp_path / "out",
+        model_path="models/sam3.pt",
+        prompts=["cow"],
+        render_mode="none",
+        log_dir=tmp_path / "logs",
+        log_every_frames=200,
+        windowed=True,
+        window_seconds=600.0,
+    )
+
+    assert "--target-fps" not in captured["command"]
+
+
 def test_main_creates_plan_path_parent_directory_even_on_dry_run(monkeypatch, tmp_path: Path):
     input_dir = tmp_path / "videos"
     input_dir.mkdir()

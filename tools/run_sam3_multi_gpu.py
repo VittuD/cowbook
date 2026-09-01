@@ -141,6 +141,7 @@ def _launch_assignment(
     log_every_frames: int,
     windowed: bool,
     window_seconds: float,
+    target_fps: float | None = None,
 ) -> subprocess.Popen:
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"gpu{assignment.gpu_index}.log"
@@ -166,6 +167,8 @@ def _launch_assignment(
     ]
     if windowed:
         command += ["--window-seconds", str(window_seconds)]
+    if target_fps is not None:
+        command += ["--target-fps", str(target_fps)]
     env = dict(os.environ)
     env["CUDA_VISIBLE_DEVICES"] = str(assignment.gpu_index)
     log_file = open(log_path, "w")
@@ -232,6 +235,17 @@ def _parse_args() -> argparse.Namespace:
         help="Window length in seconds forwarded to each worker when --windowed is set.",
     )
     parser.add_argument(
+        "--target-fps",
+        type=float,
+        default=None,
+        help=(
+            "If set, decimate each video to approximately this many frames "
+            "per second before running SAM3, forwarded to each worker "
+            "regardless of --windowed (frame dropping only -- must not "
+            "exceed a video's own fps)."
+        ),
+    )
+    parser.add_argument(
         "--seconds-per-frame",
         type=float,
         default=DEFAULT_SECONDS_PER_FRAME,
@@ -272,6 +286,8 @@ def main() -> int:
         _log(True, f"dispatch mode: windowed ({float(args.window_seconds):.0f}s windows per worker)")
     else:
         _log(True, "dispatch mode: single pass per video (no windowing)")
+    if args.target_fps is not None:
+        _log(True, f"decimating to ~{float(args.target_fps):.2f}fps per worker")
 
     items = _probe_videos(video_paths, log_progress=True)
     assignments = _assign_longest_processing_time_first(items, num_gpus)
@@ -285,6 +301,7 @@ def main() -> int:
             "seconds_per_frame": float(args.seconds_per_frame),
             "windowed": bool(args.windowed),
             "window_seconds": float(args.window_seconds),
+            "target_fps": float(args.target_fps) if args.target_fps is not None else None,
             "assignments": [assignment.to_dict(float(args.seconds_per_frame)) for assignment in assignments],
         }
         plan_path = Path(args.plan_path)
@@ -313,6 +330,7 @@ def main() -> int:
             log_every_frames=int(args.log_every_frames),
             windowed=bool(args.windowed),
             window_seconds=float(args.window_seconds),
+            target_fps=float(args.target_fps) if args.target_fps is not None else None,
         )
         processes.append((assignment.gpu_index, process.pid))
         _log(True, f"launched gpu {assignment.gpu_index}: pid={process.pid} log={log_dir / f'gpu{assignment.gpu_index}.log'}")

@@ -4,8 +4,6 @@ import argparse
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import cv2
-
 from cowbook.io.json_utils import dump_path_compact, dumps_pretty
 from tools.benchmark_sam3_semantic_tracking import (
     Sam3VideoRunResult,
@@ -18,6 +16,7 @@ from tools.benchmark_sam3_semantic_tracking import (
     _run_semantic_tracking_for_video,
     _validate_model_path,
     _validate_videos,
+    _write_video_subset,
 )
 from tools.benchmark_tracking import _probe_video_metadata
 
@@ -68,40 +67,26 @@ def _write_window_chunk(
 ) -> int:
     """Seek to `bounds` in `source_path` and write just that frame range to `output_path`.
 
-    This chunk is transient by design: the caller deletes it immediately
-    after SAM3 finishes with it, so a multi-hour video never holds more
-    than one window's worth of re-encoded video on disk at a time -- there
-    is no efficient stream-copy path available in this environment (no
-    ffmpeg binary, no PyAV, no working hardware/software H.264 encoder in
-    this OpenCV build), so re-encoding via mp4v is the only option, and
-    keeping it transient is what keeps that acceptable.
+    Thin wrapper around tools.benchmark_sam3_semantic_tracking's shared
+    `_write_video_subset` primitive (frame_stride=1: every frame in the
+    window, just bounded in duration). That primitive is also what backs
+    --target-fps decimation, so both concerns share one transient-chunk
+    implementation instead of each tool re-inventing its own -- see its
+    docstring for why re-encoding a transient copy is the only option in
+    this environment.
 
     Returns the number of frames actually written, which can be less than
     requested if the source runs out of frames early.
     """
-    capture = cv2.VideoCapture(source_path)
-    if not capture.isOpened():
-        raise ValueError(f"Failed to open video: {source_path}")
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, frame_size)
-    if not writer.isOpened():
-        capture.release()
-        raise ValueError(f"Failed to open output chunk for writing: {output_path}")
-
-    written = 0
-    try:
-        capture.set(cv2.CAP_PROP_POS_FRAMES, float(bounds.start_frame))
-        for _ in range(bounds.end_frame - bounds.start_frame):
-            ok, frame = capture.read()
-            if not ok or frame is None:
-                break
-            writer.write(frame)
-            written += 1
-    finally:
-        capture.release()
-        writer.release()
-    return written
+    return _write_video_subset(
+        source_path,
+        output_path,
+        start_frame=bounds.start_frame,
+        end_frame=bounds.end_frame,
+        frame_stride=1,
+        output_fps=fps,
+        frame_size=frame_size,
+    )
 
 
 def _run_windowed_semantic_tracking_for_video(
@@ -121,6 +106,7 @@ def _run_windowed_semantic_tracking_for_video(
     dump_frame_metadata: bool,
     log_progress: bool,
     log_every_frames: int,
+    target_fps: float | None = None,
 ) -> list[Sam3VideoRunResult]:
     metadata = _probe_video_metadata(video_path)
     fps = float(metadata["fps"])
@@ -160,6 +146,8 @@ def _run_windowed_semantic_tracking_for_video(
                 dump_frame_metadata=dump_frame_metadata,
                 log_progress=log_progress,
                 log_every_frames=log_every_frames,
+                target_fps=target_fps,
+                chunk_tmp_dir=chunk_tmp_dir,
             )
             results.append(result)
         finally:
@@ -234,6 +222,18 @@ def _parse_args() -> argparse.Namespace:
         help="Maximum number of frames to render per window's annotated videos. Use 0 for no limit.",
     )
     parser.add_argument(
+        "--target-fps",
+        type=float,
+        default=None,
+        help=(
+            "If set, decimate each window to approximately this many "
+            "frames per second before running SAM3 (frame dropping only "
+            "-- must not exceed the source video's fps). Composes with "
+            "windowing: each window is thinned independently, sharing the "
+            "same transient chunk directory."
+        ),
+    )
+    parser.add_argument(
         "--summary-name",
         default="summary.json",
         help="Top-level summary filename under --output-root.",
@@ -263,10 +263,13 @@ def main() -> int:
         raise ValueError("--max-render-frames must be >= 0.")
     if int(args.log_every_frames) < 1:
         raise ValueError("--log-every-frames must be >= 1.")
+    if args.target_fps is not None and float(args.target_fps) <= 0:
+        raise ValueError("--target-fps must be > 0.")
 
     videos = _validate_videos(args.videos)
     prompts = _resolve_prompts(args.prompts)
     model_path = _validate_model_path(args.model_path)
+    target_fps = float(args.target_fps) if args.target_fps is not None else None
 
     output_root = Path(args.output_root).resolve()
     output_root.mkdir(parents=True, exist_ok=True)
@@ -275,6 +278,7 @@ def main() -> int:
 
     runtime_info = _collect_runtime_info(model_path, args.device)
     runtime_info["window_seconds"] = float(args.window_seconds)
+    runtime_info["target_fps"] = target_fps
 
     runs = {
         video_path: [
@@ -295,6 +299,7 @@ def main() -> int:
                 dump_frame_metadata=bool(args.dump_frame_metadata),
                 log_progress=bool(args.log_progress),
                 log_every_frames=int(args.log_every_frames),
+                target_fps=target_fps,
             )
         ]
         for video_path in videos

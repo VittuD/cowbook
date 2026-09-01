@@ -52,6 +52,8 @@ class Sam3VideoRunResult:
     model_path: str
     imgsz: int
     render_mode: str
+    target_fps: float | None
+    frame_stride: int
     mean_instances_per_frame: float
     max_instances_per_frame: int
     tracked_object_ids: list[int]
@@ -187,6 +189,85 @@ def _open_video_writer(path: Path, fps: float, frame_size: tuple[int, int]) -> c
     if not writer.isOpened():
         raise ValueError(f"Failed to open output video for writing: {path}")
     return writer
+
+
+def _resolve_frame_stride(source_fps: float, target_fps: float | None) -> int:
+    """Resolve a `--target-fps` request into an integer frame stride.
+
+    We only ever drop frames to approximate a lower fps -- inventing frames
+    to go faster than the source isn't supported. Returns 1 (no decimation)
+    when target_fps is None, which callers can treat as "processing is
+    identical to not passing --target-fps at all."
+    """
+    if target_fps is None:
+        return 1
+    if target_fps <= 0:
+        raise ValueError(f"--target-fps must be > 0 (got {target_fps}).")
+    if target_fps > source_fps + 1e-6:
+        raise ValueError(
+            f"--target-fps ({target_fps}) exceeds the source video's fps "
+            f"({source_fps}); upsampling isn't supported, only decimation."
+        )
+    return max(1, round(source_fps / target_fps))
+
+
+def _write_video_subset(
+    source_path: str,
+    output_path: Path,
+    *,
+    start_frame: int,
+    end_frame: int,
+    frame_stride: int,
+    output_fps: float,
+    frame_size: tuple[int, int],
+) -> int:
+    """Seek to [start_frame, end_frame) in source_path and write every
+    `frame_stride`-th frame (relative to start_frame) to output_path,
+    encoded at output_fps.
+
+    This is the single low-level primitive behind both fixed-duration
+    windowing (tools.run_sam3_windowed, frame_stride=1: every frame in the
+    range, just bounded in duration) and frame-rate decimation
+    (frame_stride>1, from --target-fps: same range, fewer frames). The
+    output is transient by design and re-encoded via mp4v regardless of
+    which concern is in play: there is no efficient stream-copy path
+    available in this environment (no ffmpeg binary, no PyAV, no working
+    hardware/software H.264 encoder in this OpenCV build), and the
+    Ultralytics SAM3 video predictor only accepts a real video file/stream
+    source, not an in-memory frame list or generator. Callers are
+    responsible for deleting output_path once SAM3 is done with it.
+
+    Returns the number of frames actually written, which can be less than
+    `(end_frame - start_frame) / frame_stride` if the source runs out of
+    frames early.
+    """
+    if frame_stride < 1:
+        raise ValueError(f"frame_stride must be >= 1 (got {frame_stride}).")
+
+    capture = cv2.VideoCapture(source_path)
+    if not capture.isOpened():
+        raise ValueError(f"Failed to open video: {source_path}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), float(output_fps), frame_size)
+    if not writer.isOpened():
+        capture.release()
+        raise ValueError(f"Failed to open output chunk for writing: {output_path}")
+
+    written = 0
+    try:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, float(start_frame))
+        for relative_index in range(end_frame - start_frame):
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            if relative_index % frame_stride == 0:
+                writer.write(frame)
+                written += 1
+    finally:
+        capture.release()
+        writer.release()
+    return written
 
 
 def _extract_object_ids(boxes) -> list[int]:
@@ -803,206 +884,249 @@ def _run_semantic_tracking_for_video(
     dump_frame_metadata: bool,
     log_progress: bool,
     log_every_frames: int,
+    target_fps: float | None = None,
+    chunk_tmp_dir: Path | None = None,
 ) -> Sam3VideoRunResult:
     metadata = _probe_video_metadata(video_path)
-    fps = float(metadata["fps"])
+    source_fps = float(metadata["fps"])
     width = int(metadata["width"])
     height = int(metadata["height"])
-    expected_frame_count = int(metadata["frame_count"])
-
-    json_dir = output_root / "json"
-    video_dir = output_root / "videos"
-    json_dir.mkdir(parents=True, exist_ok=True)
-    video_dir.mkdir(parents=True, exist_ok=True)
-
+    source_frame_count = int(metadata["frame_count"])
     stem = _artifact_stem(video_path)
-    annotated_video_path = video_dir / f"{stem}_sam3_annotated.mp4"
-    clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_clean.mp4"
-    processed_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed.mp4"
-    processed_clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed_clean.mp4"
-    tracking_json_path = json_dir / f"{stem}_sam3_tracking.json"
-    summary_json_path = json_dir / f"{stem}_sam3_summary.json"
 
-    predictor = SAM3VideoSemanticPredictor(
-        overrides={
-            "conf": conf_threshold,
-            "imgsz": imgsz,
-            "task": "segment",
-            "mode": "predict",
-            "model": model_path,
-            "save": False,
-            "verbose": False,
-            "device": device,
-            "half": half,
-            "show_boxes": True,
-            "show_labels": True,
-            "show_conf": True,
-        }
-    )
-
-    expected_logged_frame_count = min(expected_frame_count, max_frames) if max_frames > 0 else expected_frame_count
-    writer = None
-    clean_writer = None
-    if render_mode in {"all", "raw-only"}:
-        writer = _open_video_writer(annotated_video_path, fps=fps, frame_size=(width, height))
-        clean_writer = _open_video_writer(clean_annotated_video_path, fps=fps, frame_size=(width, height))
-    frame_summaries: list[dict[str, Any]] = []
-    raw_frames: list[Sam3FrameArtifacts] = []
-    tracked_ids: set[int] = set()
-    frame_count = 0
-    total_instances = 0
-    max_instances = 0
-    start = time.perf_counter()
-    _log_progress(log_progress, f"[sam3] start: {video_path} prompts={prompts}")
-
-    try:
-        for frame_index, result in enumerate(
-            predictor(source=video_path, text=prompts, stream=True)
-        ):
-            summary = _frame_summary(frame_index, result)
-            tracked_ids.update(summary["object_ids"])
-            total_instances += int(summary["instance_count"])
-            max_instances = max(max_instances, int(summary["instance_count"]))
-            if dump_frame_metadata:
-                frame_summaries.append(summary)
-            raw_frames.append(_extract_frame_artifacts(frame_index, result))
-
-            if (
-                writer is not None
-                and clean_writer is not None
-                and (max_render_frames <= 0 or frame_count < max_render_frames)
-            ):
-                plotted = result.plot()
-                clean_plotted = result.plot(labels=False, conf=False, boxes=False, masks=True)
-                annotated = _overlay_prompt_text(plotted, prompts)
-                clean_annotated = _overlay_prompt_text(clean_plotted, prompts)
-                writer.write(annotated)
-                clean_writer.write(clean_annotated)
-            frame_count += 1
-            _maybe_log_frame_progress(
-                enabled=log_progress,
-                video_path=video_path,
-                frame_index=frame_index,
-                frame_count=expected_logged_frame_count,
-                instance_count=int(summary["instance_count"]),
-                every_n_frames=log_every_frames,
-            )
-            if max_frames > 0 and frame_count >= max_frames:
-                break
-    finally:
-        if writer is not None:
-            writer.release()
-        if clean_writer is not None:
-            clean_writer.release()
-
-    elapsed_s = time.perf_counter() - start
-    mean_instances = (total_instances / frame_count) if frame_count else 0.0
-    _log_progress(log_progress, f"[sam3] cleanup: {video_path} frames={frame_count}")
-    cleanup_start = time.perf_counter()
-    processed_frames, short_track_ids, cleanup_stats = _apply_cowbook_box_cleanup(
-        raw_frames,
-        _default_cleanup_config(),
-    )
-    cleanup_elapsed_s = time.perf_counter() - cleanup_start
-    _log_progress(
-        log_progress,
-        (
-            f"[sam3] cleanup done: {video_path} raw={cleanup_stats.raw_detection_count} "
-            f"prefiltered={cleanup_stats.prefiltered_detection_count} "
-            f"cleaned={cleanup_stats.cleaned_detection_count} "
-            f"removed_prefilter={cleanup_stats.removed_by_prefilter} "
-            f"removed_mask_fill={cleanup_stats.removed_by_mask_fill} "
-            f"removed_short_tracks={cleanup_stats.removed_by_short_tracks} "
-            f"short_tracks_removed={cleanup_stats.short_track_count} "
-            f"elapsed_s={cleanup_elapsed_s:.2f}"
-        ),
-    )
-    tracking_document = _build_tracking_document(processed_frames)
-    dump_path_compact(tracking_json_path, tracking_document.to_dict())
-    _log_progress(log_progress, f"[sam3] tracking annotations written: {video_path} -> {tracking_json_path}")
-    processed_mean_instances = 0.0
-    processed_max_instances = 0
-    processed_tracked_ids: list[int] = []
-    processed_overlay_elapsed_s = 0.0
-    if render_mode in {"all", "processed-only"}:
-        processed_overlay_start = time.perf_counter()
-        processed_mean_instances, processed_max_instances, processed_tracked_ids = _write_overlay_videos(
-            processed_frames,
-            detailed_path=processed_annotated_video_path,
-            clean_path=processed_clean_annotated_video_path,
-            fps=fps,
-            prompts=prompts,
-            max_render_frames=max_render_frames,
-            log_progress=log_progress,
-            log_every_frames=log_every_frames,
-            stage_label=f"{video_path} processed_overlays",
+    # Decimating to --target-fps happens here, not in each caller: this is
+    # the single point both the plain single-pass run and each window of
+    # tools.run_sam3_windowed converge on, so it composes with windowing
+    # for free instead of needing its own copy of this logic. Like window
+    # chunks, the decimated copy is a transient re-encode (see
+    # _write_video_subset's docstring for why) that is deleted once SAM3
+    # is done with it.
+    frame_stride = _resolve_frame_stride(source_fps, target_fps)
+    predictor_source = video_path
+    decimated_chunk_path: Path | None = None
+    fps = source_fps
+    expected_frame_count = source_frame_count
+    if frame_stride > 1:
+        fps = source_fps / frame_stride
+        tmp_dir = chunk_tmp_dir if chunk_tmp_dir is not None else output_root / "_fps_decimated_tmp"
+        decimated_chunk_path = tmp_dir / f"{stem}_fps{target_fps:g}.mp4"
+        written = _write_video_subset(
+            video_path,
+            decimated_chunk_path,
+            start_frame=0,
+            end_frame=source_frame_count,
+            frame_stride=frame_stride,
+            output_fps=fps,
+            frame_size=(width, height),
         )
-        processed_overlay_elapsed_s = time.perf_counter() - processed_overlay_start
+        expected_frame_count = written
+        predictor_source = str(decimated_chunk_path)
         _log_progress(
             log_progress,
-            f"[sam3] processed overlays written: {video_path} elapsed_s={processed_overlay_elapsed_s:.2f}",
+            f"[sam3] decimated {video_path} to ~{target_fps:.2f}fps (stride={frame_stride}): "
+            f"{written} frame(s) -> {decimated_chunk_path}",
         )
 
-    summary_payload: dict[str, Any] = {
-        "video_path": video_path,
-        "annotated_video_path": str(annotated_video_path),
-        "clean_annotated_video_path": str(clean_annotated_video_path),
-        "processed_annotated_video_path": str(processed_annotated_video_path),
-        "processed_clean_annotated_video_path": str(processed_clean_annotated_video_path),
-        "tracking_json_path": str(tracking_json_path),
-        "elapsed_s": elapsed_s,
-        "frame_count": frame_count,
-        "fps": fps,
-        "width": width,
-        "height": height,
-        "prompts": prompts,
-        "model_path": model_path,
-        "imgsz": imgsz,
-        "render_mode": render_mode,
-        "max_frames": max_frames,
-        "max_render_frames": max_render_frames,
-        "mean_instances_per_frame": mean_instances,
-        "max_instances_per_frame": max_instances,
-        "tracked_object_ids": sorted(tracked_ids),
-        "processed_mean_instances_per_frame": processed_mean_instances,
-        "processed_max_instances_per_frame": processed_max_instances,
-        "processed_tracked_object_ids": processed_tracked_ids,
-        "short_track_ids_removed": sorted(short_track_ids),
-        "cleanup_stats": asdict(cleanup_stats),
-        "cleanup_elapsed_s": cleanup_elapsed_s,
-        "processed_overlay_elapsed_s": processed_overlay_elapsed_s,
-        "dump_frame_metadata": dump_frame_metadata,
-    }
-    if dump_frame_metadata:
-        summary_payload["frames"] = frame_summaries
+    try:
+        json_dir = output_root / "json"
+        video_dir = output_root / "videos"
+        json_dir.mkdir(parents=True, exist_ok=True)
+        video_dir.mkdir(parents=True, exist_ok=True)
 
-    dump_path_compact(summary_json_path, summary_payload)
-    _log_progress(log_progress, f"[sam3] done: {video_path} in {elapsed_s:.2f}s -> {annotated_video_path}")
-    return Sam3VideoRunResult(
-        video_path=video_path,
-        annotated_video_path=str(annotated_video_path),
-        clean_annotated_video_path=str(clean_annotated_video_path),
-        processed_annotated_video_path=str(processed_annotated_video_path),
-        processed_clean_annotated_video_path=str(processed_clean_annotated_video_path),
-        tracking_json_path=str(tracking_json_path),
-        summary_json_path=str(summary_json_path),
-        elapsed_s=elapsed_s,
-        frame_count=frame_count,
-        fps=fps,
-        width=width,
-        height=height,
-        prompts=prompts,
-        model_path=model_path,
-        imgsz=imgsz,
-        render_mode=render_mode,
-        mean_instances_per_frame=mean_instances,
-        max_instances_per_frame=max_instances,
-        tracked_object_ids=sorted(tracked_ids),
-        processed_mean_instances_per_frame=processed_mean_instances,
-        processed_max_instances_per_frame=processed_max_instances,
-        processed_tracked_object_ids=processed_tracked_ids,
-        dump_frame_metadata=dump_frame_metadata,
-    )
+        annotated_video_path = video_dir / f"{stem}_sam3_annotated.mp4"
+        clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_clean.mp4"
+        processed_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed.mp4"
+        processed_clean_annotated_video_path = video_dir / f"{stem}_sam3_annotated_processed_clean.mp4"
+        tracking_json_path = json_dir / f"{stem}_sam3_tracking.json"
+        summary_json_path = json_dir / f"{stem}_sam3_summary.json"
+
+        predictor = SAM3VideoSemanticPredictor(
+            overrides={
+                "conf": conf_threshold,
+                "imgsz": imgsz,
+                "task": "segment",
+                "mode": "predict",
+                "model": model_path,
+                "save": False,
+                "verbose": False,
+                "device": device,
+                "half": half,
+                "show_boxes": True,
+                "show_labels": True,
+                "show_conf": True,
+            }
+        )
+
+        expected_logged_frame_count = min(expected_frame_count, max_frames) if max_frames > 0 else expected_frame_count
+        writer = None
+        clean_writer = None
+        if render_mode in {"all", "raw-only"}:
+            writer = _open_video_writer(annotated_video_path, fps=fps, frame_size=(width, height))
+            clean_writer = _open_video_writer(clean_annotated_video_path, fps=fps, frame_size=(width, height))
+        frame_summaries: list[dict[str, Any]] = []
+        raw_frames: list[Sam3FrameArtifacts] = []
+        tracked_ids: set[int] = set()
+        frame_count = 0
+        total_instances = 0
+        max_instances = 0
+        start = time.perf_counter()
+        _log_progress(log_progress, f"[sam3] start: {video_path} prompts={prompts}")
+
+        try:
+            for frame_index, result in enumerate(
+                predictor(source=predictor_source, text=prompts, stream=True)
+            ):
+                summary = _frame_summary(frame_index, result)
+                tracked_ids.update(summary["object_ids"])
+                total_instances += int(summary["instance_count"])
+                max_instances = max(max_instances, int(summary["instance_count"]))
+                if dump_frame_metadata:
+                    frame_summaries.append(summary)
+                raw_frames.append(_extract_frame_artifacts(frame_index, result))
+
+                if (
+                    writer is not None
+                    and clean_writer is not None
+                    and (max_render_frames <= 0 or frame_count < max_render_frames)
+                ):
+                    plotted = result.plot()
+                    clean_plotted = result.plot(labels=False, conf=False, boxes=False, masks=True)
+                    annotated = _overlay_prompt_text(plotted, prompts)
+                    clean_annotated = _overlay_prompt_text(clean_plotted, prompts)
+                    writer.write(annotated)
+                    clean_writer.write(clean_annotated)
+                frame_count += 1
+                _maybe_log_frame_progress(
+                    enabled=log_progress,
+                    video_path=video_path,
+                    frame_index=frame_index,
+                    frame_count=expected_logged_frame_count,
+                    instance_count=int(summary["instance_count"]),
+                    every_n_frames=log_every_frames,
+                )
+                if max_frames > 0 and frame_count >= max_frames:
+                    break
+        finally:
+            if writer is not None:
+                writer.release()
+            if clean_writer is not None:
+                clean_writer.release()
+
+        elapsed_s = time.perf_counter() - start
+        mean_instances = (total_instances / frame_count) if frame_count else 0.0
+        _log_progress(log_progress, f"[sam3] cleanup: {video_path} frames={frame_count}")
+        cleanup_start = time.perf_counter()
+        processed_frames, short_track_ids, cleanup_stats = _apply_cowbook_box_cleanup(
+            raw_frames,
+            _default_cleanup_config(),
+        )
+        cleanup_elapsed_s = time.perf_counter() - cleanup_start
+        _log_progress(
+            log_progress,
+            (
+                f"[sam3] cleanup done: {video_path} raw={cleanup_stats.raw_detection_count} "
+                f"prefiltered={cleanup_stats.prefiltered_detection_count} "
+                f"cleaned={cleanup_stats.cleaned_detection_count} "
+                f"removed_prefilter={cleanup_stats.removed_by_prefilter} "
+                f"removed_mask_fill={cleanup_stats.removed_by_mask_fill} "
+                f"removed_short_tracks={cleanup_stats.removed_by_short_tracks} "
+                f"short_tracks_removed={cleanup_stats.short_track_count} "
+                f"elapsed_s={cleanup_elapsed_s:.2f}"
+            ),
+        )
+        tracking_document = _build_tracking_document(processed_frames)
+        dump_path_compact(tracking_json_path, tracking_document.to_dict())
+        _log_progress(log_progress, f"[sam3] tracking annotations written: {video_path} -> {tracking_json_path}")
+        processed_mean_instances = 0.0
+        processed_max_instances = 0
+        processed_tracked_ids: list[int] = []
+        processed_overlay_elapsed_s = 0.0
+        if render_mode in {"all", "processed-only"}:
+            processed_overlay_start = time.perf_counter()
+            processed_mean_instances, processed_max_instances, processed_tracked_ids = _write_overlay_videos(
+                processed_frames,
+                detailed_path=processed_annotated_video_path,
+                clean_path=processed_clean_annotated_video_path,
+                fps=fps,
+                prompts=prompts,
+                max_render_frames=max_render_frames,
+                log_progress=log_progress,
+                log_every_frames=log_every_frames,
+                stage_label=f"{video_path} processed_overlays",
+            )
+            processed_overlay_elapsed_s = time.perf_counter() - processed_overlay_start
+            _log_progress(
+                log_progress,
+                f"[sam3] processed overlays written: {video_path} elapsed_s={processed_overlay_elapsed_s:.2f}",
+            )
+
+        summary_payload: dict[str, Any] = {
+            "video_path": video_path,
+            "annotated_video_path": str(annotated_video_path),
+            "clean_annotated_video_path": str(clean_annotated_video_path),
+            "processed_annotated_video_path": str(processed_annotated_video_path),
+            "processed_clean_annotated_video_path": str(processed_clean_annotated_video_path),
+            "tracking_json_path": str(tracking_json_path),
+            "elapsed_s": elapsed_s,
+            "frame_count": frame_count,
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "prompts": prompts,
+            "model_path": model_path,
+            "imgsz": imgsz,
+            "render_mode": render_mode,
+            "target_fps": target_fps,
+            "frame_stride": frame_stride,
+            "max_frames": max_frames,
+            "max_render_frames": max_render_frames,
+            "mean_instances_per_frame": mean_instances,
+            "max_instances_per_frame": max_instances,
+            "tracked_object_ids": sorted(tracked_ids),
+            "processed_mean_instances_per_frame": processed_mean_instances,
+            "processed_max_instances_per_frame": processed_max_instances,
+            "processed_tracked_object_ids": processed_tracked_ids,
+            "short_track_ids_removed": sorted(short_track_ids),
+            "cleanup_stats": asdict(cleanup_stats),
+            "cleanup_elapsed_s": cleanup_elapsed_s,
+            "processed_overlay_elapsed_s": processed_overlay_elapsed_s,
+            "dump_frame_metadata": dump_frame_metadata,
+        }
+        if dump_frame_metadata:
+            summary_payload["frames"] = frame_summaries
+
+        dump_path_compact(summary_json_path, summary_payload)
+        _log_progress(log_progress, f"[sam3] done: {video_path} in {elapsed_s:.2f}s -> {annotated_video_path}")
+        return Sam3VideoRunResult(
+            video_path=video_path,
+            annotated_video_path=str(annotated_video_path),
+            clean_annotated_video_path=str(clean_annotated_video_path),
+            processed_annotated_video_path=str(processed_annotated_video_path),
+            processed_clean_annotated_video_path=str(processed_clean_annotated_video_path),
+            tracking_json_path=str(tracking_json_path),
+            summary_json_path=str(summary_json_path),
+            elapsed_s=elapsed_s,
+            frame_count=frame_count,
+            fps=fps,
+            width=width,
+            height=height,
+            prompts=prompts,
+            model_path=model_path,
+            imgsz=imgsz,
+            render_mode=render_mode,
+            target_fps=target_fps,
+            frame_stride=frame_stride,
+            mean_instances_per_frame=mean_instances,
+            max_instances_per_frame=max_instances,
+            tracked_object_ids=sorted(tracked_ids),
+            processed_mean_instances_per_frame=processed_mean_instances,
+            processed_max_instances_per_frame=processed_max_instances,
+            processed_tracked_object_ids=processed_tracked_ids,
+            dump_frame_metadata=dump_frame_metadata,
+        )
+    finally:
+        if decimated_chunk_path is not None:
+            decimated_chunk_path.unlink(missing_ok=True)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1101,6 +1225,22 @@ def _parse_args() -> argparse.Namespace:
         default=25,
         help="When --log-progress is enabled, log every N processed frames.",
     )
+    parser.add_argument(
+        "--target-fps",
+        type=float,
+        default=None,
+        help=(
+            "If set, decimate each video to approximately this many frames "
+            "per second before running SAM3 (frame dropping only -- must "
+            "not exceed the source video's fps). Useful for fast, cheap "
+            "test runs on a clip that's already at a higher native fps."
+        ),
+    )
+    parser.add_argument(
+        "--chunk-tmp-dir",
+        default=None,
+        help="Directory for transient decimated video copies when --target-fps is set. Defaults to <output-root>/_fps_decimated_tmp.",
+    )
     return parser.parse_args()
 
 
@@ -1112,6 +1252,8 @@ def main() -> int:
         raise ValueError("--max-frames must be >= 0.")
     if int(args.max_render_frames) < 0:
         raise ValueError("--max-render-frames must be >= 0.")
+    if args.target_fps is not None and float(args.target_fps) <= 0:
+        raise ValueError("--target-fps must be > 0.")
     videos = _validate_videos(args.videos)
     prompts = _resolve_prompts(args.prompts)
     model_path = _validate_model_path(args.model_path)
@@ -1125,8 +1267,11 @@ def main() -> int:
 
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
+    chunk_tmp_dir = Path(args.chunk_tmp_dir) if args.chunk_tmp_dir else None
+    target_fps = float(args.target_fps) if args.target_fps is not None else None
 
     runtime_info = _collect_runtime_info(model_path, args.device)
+    runtime_info["target_fps"] = target_fps
     runs = [
         _run_semantic_tracking_for_video(
             video_path=video_path,
@@ -1143,6 +1288,8 @@ def main() -> int:
             dump_frame_metadata=bool(args.dump_frame_metadata),
             log_progress=bool(args.log_progress),
             log_every_frames=int(args.log_every_frames),
+            target_fps=target_fps,
+            chunk_tmp_dir=chunk_tmp_dir,
         )
         for video_path in benchmark_videos
     ]

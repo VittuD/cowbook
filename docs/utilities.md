@@ -74,6 +74,17 @@ python -m tools.run_sam3_windowed \
 
 Each window is written as a transient chunk -- seeked directly from the source video, deleted immediately after that window's SAM3 pass finishes -- so a multi-hour video never grows disk usage beyond one window's worth. This also resets SAM3's video-tracker memory on a fixed cadence, which matters because that memory bank's GPU footprint grows with tracked-object count over a video's duration; an unbroken pass over a long recording risks running out of memory well before the end. Track IDs do not carry across a window boundary. Internally it re-uses `tools.benchmark_sam3_semantic_tracking`'s per-video processing unchanged, so every window gets the same cleanup, mask handling, and output layout as a normal run.
 
+Pass `--target-fps` to also decimate each window to approximately that many frames per second before running SAM3 (frame dropping only -- it's rejected if it exceeds a video's own fps). This is handled by the same shared code path as windowing itself, so the two compose: each window is thinned independently, and this also works with `tools.benchmark_sam3_semantic_tracking` directly (`--no-windowed` runs, or single-pass runs of that tool on its own) since the underlying `_run_semantic_tracking_for_video` implements `--target-fps` regardless of whether it's called per-window or once for the whole video. Useful for cheap test runs on a clip that's already at a higher native fps, e.g. decimating a 6fps 1-minute test clip down to 1fps:
+
+```bash
+python -m tools.run_sam3_windowed \
+  --videos sample_data/videos/Ch1_60.mp4 \
+  --prompts cow \
+  --model-path sam3.pt \
+  --target-fps 1 \
+  --output-root var/windowed/sam3_semantic_tracking_1fps
+```
+
 ## `run_sam3_multi_gpu.py`
 
 `tools/run_sam3_multi_gpu.py` partitions a folder's videos across the available GPUs and, by default, dispatches `tools.run_sam3_windowed` on each one:
@@ -86,3 +97,5 @@ python -m tools.run_sam3_multi_gpu \
 ```
 
 GPU count auto-detects via `nvidia-smi` unless `--num-gpus` is passed explicitly, so the same command adapts to however many GPUs are actually available. Videos are bin-packed with a longest-processing-time-first heuristic (SAM3 video tracking can't be split within a single video, so the only axis that parallelizes is across videos, one full model instance per GPU); a video's total frame count is used as its weight, since windowing's per-window reload cost is small relative to actual inference time. Without `--launch`, it only prints the assignment plan and a rough per-GPU time estimate -- pass `--plan-path` to also save that plan as JSON. Pass `--no-windowed` to dispatch `tools.benchmark_sam3_semantic_tracking` (single pass per video) instead.
+
+Pass `--target-fps` to forward frame-rate decimation to every worker, regardless of `--windowed` (see `run_sam3_windowed.py` above for how decimation works and composes with windowing).
