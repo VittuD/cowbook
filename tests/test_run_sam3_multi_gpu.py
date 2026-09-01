@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -132,6 +133,43 @@ def test_preprocess_videos_for_masking_raises_on_unmatched_channel(tmp_path: Pat
             max_workers=1,
             log_progress=False,
         )
+
+
+def test_preprocess_videos_for_masking_skips_already_up_to_date_output(tmp_path: Path, monkeypatch):
+    width, height = 32, 24
+    video_path = tmp_path / "Ch1_a.mp4"
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), 5.0, (width, height))
+    writer.write(np.full((height, width, 3), 220, dtype=np.uint8))
+    writer.release()
+
+    mask_path = tmp_path / "ch1_mask.png"
+    cv2.imwrite(str(mask_path), np.full((height, width), 255, dtype=np.uint8))
+
+    output_dir = tmp_path / "masked"
+    output_dir.mkdir()
+    dst_path = output_dir / "Ch1_a.mp4"
+    dst_path.write_bytes(b"already processed")
+    newer = max(video_path.stat().st_mtime, mask_path.stat().st_mtime) + 5
+    os.utime(dst_path, (newer, newer))
+
+    def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("should not reprocess an up-to-date masked video")
+
+    monkeypatch.setattr(module, "mask_video", _fail_if_called)
+    monkeypatch.setattr(module, "crop_and_mask_video", _fail_if_called)
+
+    processed = module._preprocess_videos_for_masking(
+        [str(video_path)],
+        ["Ch1"],
+        output_dir=output_dir,
+        crop_to_mask=False,
+        channel_masks={"Ch1": str(mask_path)},
+        max_workers=1,
+        log_progress=False,
+    )
+
+    assert processed == [str(dst_path)]
+    assert dst_path.read_bytes() == b"already processed"  # untouched, not reprocessed
 
 
 def test_detect_gpu_count_falls_back_to_one_without_nvidia_smi(monkeypatch):
@@ -300,7 +338,7 @@ def test_launch_assignment_chains_preview_after_tracking_when_set(monkeypatch, t
     # Chained via a shell, not launched concurrently: a second predictor
     # instance sharing the GPU with the still-running tracking pass would
     # compete for its memory instead of reusing it afterward.
-    assert command[:3] == ["bash", "-lc", command[2]]
+    assert command[:3] == ["bash", "-c", command[2]]
     shell_line = command[2]
     assert "tools.run_sam3_windowed" in shell_line
     assert "tools.preview_sam3_samples" in shell_line

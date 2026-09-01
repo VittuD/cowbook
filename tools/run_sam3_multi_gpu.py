@@ -86,6 +86,17 @@ def _mask_one_video(args: tuple[str, str, str, bool]) -> str:
     return dst_path
 
 
+def _is_masked_output_up_to_date(src_path: str, dst_path: str, mask_path: str) -> bool:
+    """True if dst_path already reflects the current src_path and mask_path
+    (mtime-based, like preprocess_video's own _should_skip). Lets a re-run
+    against the same input skip the expensive full-video crop/mask pass
+    entirely instead of redoing it from scratch."""
+    if not os.path.exists(dst_path):
+        return False
+    dst_mtime = os.path.getmtime(dst_path)
+    return dst_mtime >= os.path.getmtime(src_path) and dst_mtime >= os.path.getmtime(mask_path)
+
+
 def _preprocess_videos_for_masking(
     video_paths: list[str],
     channels: list[str],
@@ -106,9 +117,16 @@ def _preprocess_videos_for_masking(
     per video total -- for a multi-hour recording split into many windows,
     that's a lot of repeated full-resolution frame decoding for no benefit,
     since the mask never changes within a video.
+
+    Also skips any video whose masked/cropped copy is already up to date
+    (mtime-based), so re-running against the same input/output roots --
+    e.g. after tuning --target-fps or another downstream flag -- doesn't
+    redo this expensive full-video pass for videos already done.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     jobs = []
+    processed_paths = []
+    skipped = 0
     for path in video_paths:
         channel = _channel_for_video_path(path, channels)
         mask_path = channel_masks.get(channel) if channel else None
@@ -117,15 +135,21 @@ def _preprocess_videos_for_masking(
                 f"No usable mask for {path} (channel={channel!r}); configured channel masks: {channel_masks}"
             )
         dst_path = str(output_dir / Path(path).name)
+        processed_paths.append(dst_path)
+        if _is_masked_output_up_to_date(path, dst_path, mask_path):
+            skipped += 1
+            continue
         jobs.append((path, dst_path, mask_path, crop_to_mask))
 
     _log(
         log_progress,
         f"[mask] preprocessing {len(jobs)} video(s) "
-        f"({'crop-to-mask-bbox' if crop_to_mask else 'mask, full resolution'}) with {max_workers} worker(s)",
+        f"({'crop-to-mask-bbox' if crop_to_mask else 'mask, full resolution'}) with {max_workers} worker(s)"
+        + (f", reusing {skipped} already up to date" if skipped else ""),
     )
-    with futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as pool:
-        processed_paths = list(pool.map(_mask_one_video, jobs))
+    if jobs:
+        with futures.ProcessPoolExecutor(max_workers=max_workers, mp_context=mp.get_context("spawn")) as pool:
+            list(pool.map(_mask_one_video, jobs))
     _log(log_progress, f"[mask] done: {len(processed_paths)} video(s) -> {output_dir}")
     return processed_paths
 
@@ -282,8 +306,14 @@ def _launch_assignment(
         preview_sample_count=preview_sample_count,
     )
     chained = " && ".join(shlex.join(cmd) for cmd in (command, preview_command))
+    # Plain -c, not -l/login: a login shell sources /etc/profile and
+    # friends before running anything, which is both unnecessary (the
+    # environment is already passed explicitly via env=) and a real risk
+    # on cluster images where those profile scripts commonly do
+    # network-dependent or environment-module setup that can stall or
+    # override variables we depend on (CUDA_VISIBLE_DEVICES included).
     return subprocess.Popen(
-        ["bash", "-lc", chained], stdout=log_file, stderr=subprocess.STDOUT, env=env, cwd=str(REPO_ROOT)
+        ["bash", "-c", chained], stdout=log_file, stderr=subprocess.STDOUT, env=env, cwd=str(REPO_ROOT)
     )
 
 
