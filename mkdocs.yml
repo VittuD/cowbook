@@ -27,6 +27,7 @@ nav:
   - Getting Started: getting-started.md
   - CLI Usage: cli.md
   - Utilities: utilities.md
+  - Docker: docker.md
   - Pipeline: pipeline.md
   - Python Usage: python-usage.md
   - Configuration: configuration.md
