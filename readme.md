@@ -188,6 +188,7 @@ Docker images included:
 - `docker/Dockerfile.deva-base`: heavy cached DEVA + Grounded-Segment-Anything dependency image
 - `docker/Dockerfile.deva-bench`: DEVA text-prompted video segmentation benchmark image
 - `docker/Dockerfile.sam3-bench`: SAM3 all-instance semantic video tracking benchmark image
+- `docker/Dockerfile.sam3-chunk-run`: persistent multi-GPU SAM3 batch runner for a full camera-channel folder
 - `docker/Dockerfile.tensorrt-bench`: runtime TensorRT concurrency sweep image for `.pt` vs `.engine` at tracking concurrency `1 2 3 4`
 
 The image:
@@ -253,6 +254,8 @@ The backend benchmark image runs `tools.benchmark_tracking_backends` against the
 The TensorRT concurrency image runs `tools.benchmark_runtime_tracking_concurrency`, exports or reuses one TensorRT engine, then benchmarks Cowbook's real `group_processor` tracking path across the requested tracking concurrencies. Concurrency `1` uses the runtime inline path; higher values use the runtime multiprocessing path. This is the benchmark to use when deciding how runtime concurrency should behave on a target machine. Its defaults follow the same folder layout as the cleanup image under `/scratch/vet/var/...`.
 
 The SAM3 benchmark image runs `tools.benchmark_sam3_semantic_tracking` for text-only all-instance concept tracking, writes per-video JSON summaries, and produces annotated overlay videos for visual inspection. Its defaults target `/scratch/vet/var/benchmarks/sam3_semantic_tracking_300s`. Per the Ultralytics SAM3 docs, the `sam3.pt` weights are not auto-downloaded and must be provided explicitly in the image or working directory. The image also preinstalls the extra SAM3 runtime dependencies that Ultralytics otherwise attempts to install dynamically at runtime, including the Ultralytics `CLIP` package and `timm`.
+
+The SAM3 chunk-run image runs `tools.run_sam3_multi_gpu --launch` against a whole camera-channel folder, unlike the dev container (`docker/Dockerfile.sam3-dev`) it's meant to replace for real batch runs, which doesn't survive the remote session closing. It defaults to `--input-dir /scratch/vet/vanzetti18032026_07_13 --channels Ch1 Ch4 Ch6 Ch8`, dispatches `tools.run_sam3_windowed` (fixed-duration windows, bounded GPU memory, transient per-window chunks -- see `docs/utilities.md`) on one worker per detected GPU, and writes outputs under `/scratch/vet/var/batches/sam3_ch1468`. GPU count auto-detects via `nvidia-smi` inside the container, so the same image adapts to however many GPUs `--gpus` exposes at `docker run` time (4, 8, or otherwise) without an image rebuild; override with `--num-gpus` if a fixed count is preferred. Mount `/scratch/vet` from the host so both the source videos and the batch output survive the container exiting.
 
 The DEVA benchmark path is split into two images:
 
