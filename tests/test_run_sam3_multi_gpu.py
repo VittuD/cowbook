@@ -3,8 +3,18 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
 from tools import run_sam3_multi_gpu as module
+
+
+def _write_real_video(path: Path, frame_count: int, fps: float, size: tuple[int, int] = (32, 24)) -> None:
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, size)
+    for index in range(frame_count):
+        frame = np.full((size[1], size[0], 3), fill_value=index % 256, dtype=np.uint8)
+        writer.write(frame)
+    writer.release()
 
 
 def test_collect_channel_videos_matches_requested_channels_only(tmp_path: Path):
@@ -147,3 +157,32 @@ def test_launch_assignment_dispatches_single_pass_tool_when_not_windowed(monkeyp
     assert "tools.benchmark_sam3_semantic_tracking" in command
     assert "tools.run_sam3_windowed" not in command
     assert "--window-seconds" not in command
+
+
+def test_main_creates_plan_path_parent_directory_even_on_dry_run(monkeypatch, tmp_path: Path):
+    input_dir = tmp_path / "videos"
+    input_dir.mkdir()
+    _write_real_video(input_dir / "Ch1_a.mp4", frame_count=10, fps=5.0)
+
+    # A --plan-path nested under directories that don't exist yet, and no
+    # --launch, so --output-root is never created either: writing the plan
+    # must not depend on some other path having already made the directory.
+    plan_path = tmp_path / "nested" / "does" / "not" / "exist" / "plan.json"
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            "run_sam3_multi_gpu.py",
+            "--input-dir",
+            str(input_dir),
+            "--channels",
+            "Ch1",
+            "--num-gpus",
+            "1",
+            "--plan-path",
+            str(plan_path),
+        ],
+    )
+
+    assert module.main() == 0
+    assert plan_path.exists()

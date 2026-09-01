@@ -287,7 +287,9 @@ def main() -> int:
             "window_seconds": float(args.window_seconds),
             "assignments": [assignment.to_dict(float(args.seconds_per_frame)) for assignment in assignments],
         }
-        dump_path_compact(Path(args.plan_path), plan_payload)
+        plan_path = Path(args.plan_path)
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_path_compact(plan_path, plan_payload)
 
     if not args.launch:
         print("Dry run only (pass --launch to start the worker processes).")
