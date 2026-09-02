@@ -569,12 +569,33 @@ def main() -> int:
             target_fps=float(args.target_fps) if args.target_fps is not None else None,
             preview_sample_count=int(args.preview_sample_count) if args.preview_sample_count is not None else None,
         )
-        processes.append((assignment.gpu_index, process.pid))
+        processes.append((assignment.gpu_index, process))
         _log(True, f"launched gpu {assignment.gpu_index}: pid={process.pid} log={log_dir / f'gpu{assignment.gpu_index}.log'}")
 
     print("Launched worker PIDs (per GPU):")
-    for gpu_index, pid in processes:
-        print(f"  gpu {gpu_index}: pid {pid}")
+    for gpu_index, process in processes:
+        print(f"  gpu {gpu_index}: pid {process.pid}")
+
+    # Wait for every worker before returning: this process is the
+    # container's entrypoint (PID 1) when run under Docker/Swarm, and a
+    # PID-1 exit tears down the whole container -- killing every child
+    # subprocess with it, typically before it even prints its first log
+    # line. Fire-and-forget (returning right after Popen) only looks fine
+    # outside a container, where orphaned children get reparented to init
+    # and keep running; it silently discards all GPU work the instant this
+    # function returns when it's actually PID 1.
+    failed_gpus = []
+    for gpu_index, process in processes:
+        returncode = process.wait()
+        if returncode == 0:
+            _log(True, f"gpu {gpu_index} worker finished (pid={process.pid})")
+        else:
+            _log(True, f"gpu {gpu_index} worker FAILED (pid={process.pid}, exit={returncode})")
+            failed_gpus.append(gpu_index)
+
+    if failed_gpus:
+        _log(True, f"one or more GPU workers failed: {failed_gpus}")
+        return 1
     return 0
 
 

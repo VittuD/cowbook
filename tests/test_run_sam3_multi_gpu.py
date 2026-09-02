@@ -195,6 +195,10 @@ class _FakePopen:
         self.command = command
         self.kwargs = kwargs
         self.pid = 4242
+        self.returncode = 0
+
+    def wait(self):
+        return self.returncode
 
 
 def test_launch_assignment_dispatches_windowed_tool_by_default(monkeypatch, tmp_path: Path):
@@ -402,3 +406,90 @@ def test_main_creates_plan_path_parent_directory_even_on_dry_run(monkeypatch, tm
 
     assert module.main() == 0
     assert plan_path.exists()
+
+
+def test_main_waits_for_every_launched_worker_before_returning(monkeypatch, tmp_path: Path):
+    # Regression test: main() previously returned right after Popen-ing
+    # every GPU worker, without ever waiting on them. That's silently
+    # fatal when this process is a container's entrypoint (PID 1) --
+    # Docker kills every child the instant PID 1 exits, typically before
+    # a worker even prints its first log line. Fire-and-forget only
+    # "worked" outside a container, where orphaned children get
+    # reparented to init and keep running regardless of the parent.
+    input_dir = tmp_path / "videos"
+    input_dir.mkdir()
+    _write_real_video(input_dir / "Ch1_a.mp4", frame_count=10, fps=5.0)
+    _write_real_video(input_dir / "Ch4_a.mp4", frame_count=10, fps=5.0)
+
+    waited_pids: list[int] = []
+
+    class _WaitTrackingFakePopen:
+        def __init__(self, command, **kwargs):
+            self.command = command
+            self.pid = 4242 + len(waited_pids)
+            self.returncode = 0
+
+        def wait(self):
+            waited_pids.append(self.pid)
+            return self.returncode
+
+    monkeypatch.setattr(module.subprocess, "Popen", _WaitTrackingFakePopen)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            "run_sam3_multi_gpu.py",
+            "--input-dir",
+            str(input_dir),
+            "--channels",
+            "Ch1",
+            "Ch4",
+            "--num-gpus",
+            "2",
+            "--output-root",
+            str(tmp_path / "out"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--launch",
+        ],
+    )
+
+    assert module.main() == 0
+    # One launched worker per GPU, and every single one must have been
+    # waited on -- not just the first, not none.
+    assert len(waited_pids) == 2
+
+
+def test_main_returns_nonzero_when_a_worker_fails(monkeypatch, tmp_path: Path):
+    input_dir = tmp_path / "videos"
+    input_dir.mkdir()
+    _write_real_video(input_dir / "Ch1_a.mp4", frame_count=10, fps=5.0)
+
+    class _FailingFakePopen:
+        def __init__(self, command, **kwargs):
+            self.pid = 9999
+
+        def wait(self):
+            return 1
+
+    monkeypatch.setattr(module.subprocess, "Popen", _FailingFakePopen)
+    monkeypatch.setattr(
+        module.sys,
+        "argv",
+        [
+            "run_sam3_multi_gpu.py",
+            "--input-dir",
+            str(input_dir),
+            "--channels",
+            "Ch1",
+            "--num-gpus",
+            "1",
+            "--output-root",
+            str(tmp_path / "out"),
+            "--log-dir",
+            str(tmp_path / "logs"),
+            "--launch",
+        ],
+    )
+
+    assert module.main() == 1
