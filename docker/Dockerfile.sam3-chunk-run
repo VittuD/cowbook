@@ -22,7 +22,7 @@ RUN python -m pip install --upgrade pip && \
     mkdir -p /app/var /scratch/vet /home/cowbook/.cache /home/cowbook/.config/Ultralytics && \
     chown -R cowbook:cowbook /app/var /scratch/vet /home/cowbook
 
-COPY --chown=cowbook:cowbook models /app/models
+COPY --chown=cowbook:cowbook models/sam3.pt /app/models/sam3.pt
 COPY --chown=cowbook:cowbook tools /app/tools
 COPY --chown=cowbook:cowbook assets /app/assets
 
@@ -34,4 +34,4 @@ ENV HOME=/home/cowbook \
 USER cowbook
 
 ENTRYPOINT ["python", "-m", "tools.run_sam3_multi_gpu"]
-CMD ["--input-dir", "/scratch/vet/vanzetti18032026_07_13", "--channels", "Ch1", "Ch4", "Ch6", "Ch8", "--model-path", "sam3.pt", "--prompts", "cow", "--render-mode", "none", "--output-root", "/scratch/vet/var/batches/sam3_ch1468", "--log-dir", "/scratch/vet/var/batches/sam3_ch1468/logs", "--plan-path", "/scratch/vet/var/batches/sam3_ch1468/plan.json", "--launch"]
+CMD ["--input-dir", "/scratch/vet/vanzetti18032026_07_13", "--channels", "Ch1", "Ch4", "Ch6", "Ch8", "--model-path", "models/sam3.pt", "--prompts", "cow", "--render-mode", "none", "--output-root", "/scratch/vet/var/batches/sam3_ch1468", "--log-dir", "/scratch/vet/var/batches/sam3_ch1468/logs", "--plan-path", "/scratch/vet/var/batches/sam3_ch1468/plan.json", "--launch"]
